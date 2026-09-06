@@ -2,85 +2,117 @@
   <img src="assets/omarchy-warp-title.svg" alt="Omarchy Warp" width="100%">
 </p>
 
-
 # Omarchy Warp
-
-
-
-
-
-
-
 
 > **Status: early prototype. Testing for a first release.**
 
-
-
-
-
-
-
-
 Omarchy Warp explores a simple idea: use a trusted browser on another machine as extra desktop space for an Omarchy laptop.
-
-
-
-
-
-
-
 
 The project started with a practical problem. A laptop may have no external monitor connected, while another machine on the same network has displays and graphics resources available. Omarchy Warp is testing whether that remote machine can provide a browser-based extended display that behaves like an additional monitor rather than a second, mirrored window.
 
-
-
-
-
-
-
-
 ## The concept at a glance
-
-
-
-
-
-
-
 
 ```mermaid
 flowchart LR
-    A[Omarchy laptop
-Primary desktop] <-. Pointer crosses the display edge .-> C[Warp extended display
-Own workspace and tiles]
+    A[Omarchy laptop<br/>Primary desktop] <-. Pointer crosses the display edge .-> C[Warp extended display<br/>Own workspace and tiles]
 ```
-
-
-
-
-
-
-
 
 The browser is the display surface. The laptop remains the primary computer; a trusted paired machine supplies the additional screen over the private local network, without publishing a public remote-desktop service.
 
-
-
-
-
-
-
-
 ## What the prototype demonstrates
-
-
-
-
-
-
-
 
 - Pair a trusted machine and start an extended display session.
 - Open a private browser session on that machine over the local network.
 - Treat the browser session as its own monitor with its own workspace and tiles.
 - Move the pointer between the laptop and the virtual display as naturally as moving between physical monitors.
+- Keep the laptop workspace and remote display workspace separate.
+
+The demo focuses on the experience of gaining more usable desktop space without adding another cable.
+
+## A session, step by step
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant L as Omarchy laptop
+    participant P as Paired machine
+    participant B as Private browser display
+
+    U->>L: Choose a trusted machine and Extended display
+    L->>P: Establish a private, authenticated session
+    P->>B: Open the isolated browser display
+    B-->>L: Present an independent virtual monitor
+    U->>L: Move pointer across the chosen display edge
+    L-->>B: Send focus and input to the remote workspace
+    U->>B: Close display when finished
+    B-->>L: End session and release the virtual monitor
+```
+
+## The idea
+
+A virtual monitor should feel familiar:
+
+- The laptop remains the primary machine and keeps its existing desktop state.
+- A remote browser becomes an independent extended display.
+- Windows, focus, keyboard input and the pointer should follow the active display in a predictable way.
+- Audio, microphone and dictation should eventually be routed deliberately, not accidentally captured by the wrong machine.
+
+Omarchy Warp is not trying to turn every browser into an unmanaged public remote-desktop endpoint. The intended model is a private, trusted-device setup for a local network first, with secure remote access considered only after the local experience is solid.
+
+## Current testing scope
+
+The prototype is being tested on trusted devices on a local LAN. The current focus is on:
+
+- Starting and closing virtual monitor sessions reliably.
+- Keeping each virtual monitor distinct from the laptop's own monitor and workspaces.
+- Arranging the virtual monitor alongside the laptop display so the pointer crosses the correct edge.
+- Making the browser session feel responsive enough for normal desktop work.
+- Keeping the pairing and launch flow understandable for non-technical users.
+
+The interface, transport, performance characteristics and device support are all still subject to change.
+
+## What needs to be true before a first release
+
+```mermaid
+flowchart TB
+    R([First release candidate])
+    P[Clear pairing<br/>and trusted-device controls] --> R
+    D[Independent display ownership<br/>and clean session teardown] --> R
+    G[Responsive LAN experience<br/>with appropriate acceleration] --> R
+    A[Deliberate audio, microphone<br/>and dictation routing] --> R
+    S[Private-by-default networking<br/>and permissions] --> R
+```
+
+A first release needs to prove more than a successful demo. The key checks are:
+
+1. **Reliable pairing**: users must be able to add and remove trusted machines without hard-coded hosts or confusing setup.
+2. **Clear display ownership**: an extended monitor must own its own desktop state and must not hijack the laptop's tiles or pointer.
+3. **Good local-network performance**: the display should be responsive and use available hardware acceleration where appropriate.
+4. **Deliberate audio and input routing**: users need clear choices for audio, microphone and dictation on every remote display.
+5. **Private-by-default networking**: no public exposure, strong device permissions and an understandable security model.
+6. **Recoverable sessions**: closing a viewer or losing a connection must not leave the desktop in a confusing state.
+
+## Roadmap
+
+The near-term plan is to stabilise the LAN experience before expanding scope.
+
+- Finish pairing and trusted-device management.
+- Improve monitor arrangement and session lifecycle controls.
+- Validate graphics acceleration and browser rendering on available hardware.
+- Improve audio, microphone and dictation routing.
+- Harden permissions and network exposure.
+- Evaluate secure remote access and additional platform support only after the local workflow is reliable.
+
+## No code published yet
+
+This repository is currently a project overview and testing log. It does **not** contain application code or installation instructions yet.
+
+Code will be considered for publication after the first release path is tested, the security boundaries are clear, and the user experience is dependable enough for others to evaluate safely.
+
+## Feedback
+
+Questions and feedback are welcome, especially from people who work across a laptop, a desktop machine, TVs or other network-connected displays. The useful question is simple: would browser-based extended desktop space make your setup easier?
+
+## Credits
+
+The title artwork uses the [Omarchy Font](https://github.com/markcuda/Omarchy-Font) by Mark Cuda. It is an MIT-licensed fan project and is not affiliated with Omarchy or 37signals.
