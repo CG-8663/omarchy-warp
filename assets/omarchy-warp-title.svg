@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="420" viewBox="0 0 1800 420" role="img" aria-label="Omarchy Warp">
+  <defs>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f359cc"/>
+      <stop offset="52%" stop-color="#b58ced"/>
+      <stop offset="100%" stop-color="#74c8ff"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ed70d7"/>
+      <stop offset="100%" stop-color="#72c7ff"/>
+    </linearGradient>
+    <style>
+      @font-face { font-family: 'Omarchy Font'; src: url('https://raw.githubusercontent.com/markcuda/Omarchy-Font/main/Omarchy%20Font.ttf') format('truetype'); }
+      .wordmark { font-family: 'Omarchy Font', monospace; font-size: 150px; letter-spacing: 2px; }
+      .subtitle { font-family: monospace; font-size: 25px; letter-spacing: 7px; }
+    </style>
+  </defs>
+  <rect width="1800" height="420" fill="#171326"/>
+  <text x="900" y="225" text-anchor="middle" class="wordmark" fill="url(#title)">OMARCHY WARP</text>
+  <rect x="250" y="295" width="1300" height="4" rx="2" fill="url(#line)"/>
+  <text x="900" y="350" text-anchor="middle" class="subtitle" fill="#c6b5eb">EXTRA DESKTOP SPACE, OVER YOUR LAN</text>
+</svg>
