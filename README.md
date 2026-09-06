@@ -6,6 +6,20 @@ Omarchy Warp explores a simple idea: use a trusted browser on another machine as
 
 The project started with a practical problem. A laptop may have no external monitor connected, while another machine on the same network has displays and graphics resources available. Omarchy Warp is testing whether that remote machine can provide a browser-based extended display that behaves like an additional monitor rather than a second, mirrored window.
 
+## The concept at a glance
+
+```mermaid
+flowchart LR
+    A[Omarchy laptop
+Primary desktop] -->|Private local network| B[Trusted paired machine
+Private browser session]
+    B --> C[Warp extended display
+Own workspace and tiles]
+    C <-. Pointer crosses the display edge .-> A
+```
+
+The browser is the display surface. The laptop remains the primary computer. A paired machine supplies the additional screen without publishing a public remote-desktop service.
+
 ## What the prototype demonstrates
 
 - Pair a trusted machine and start an extended display session.
@@ -15,6 +29,25 @@ The project started with a practical problem. A laptop may have no external moni
 - Keep the laptop workspace and remote display workspace separate.
 
 The demo focuses on the experience of gaining more usable desktop space without adding another cable.
+
+## A session, step by step
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant L as Omarchy laptop
+    participant P as Paired machine
+    participant B as Private browser display
+
+    U->>L: Choose a trusted machine and Extended display
+    L->>P: Establish a private, authenticated session
+    P->>B: Open the isolated browser display
+    B-->>L: Present an independent virtual monitor
+    U->>L: Move pointer across the chosen display edge
+    L-->>B: Send focus and input to the remote workspace
+    U->>B: Close display when finished
+    B-->>L: End session and release the virtual monitor
+```
 
 ## The idea
 
@@ -39,16 +72,31 @@ The prototype is being tested on trusted devices on a local LAN. The current foc
 
 The interface, transport, performance characteristics and device support are all still subject to change.
 
-## Before a first release
+## What needs to be true before a first release
+
+```mermaid
+flowchart TD
+    R([First release candidate])
+    P[Clear pairing
+and trusted-device controls] --> R
+    D[Independent display ownership
+and clean session teardown] --> R
+    G[Responsive LAN experience
+with appropriate acceleration] --> R
+    A[Deliberate audio, microphone
+and dictation routing] --> R
+    S[Private-by-default networking
+and permissions] --> R
+```
 
 A first release needs to prove more than a successful demo. The key checks are:
 
-1. **Reliable pairing** — users must be able to add and remove trusted machines without hard-coded hosts or confusing setup.
-2. **Clear display ownership** — an extended monitor must own its own desktop state and must not hijack the laptop's tiles or pointer.
-3. **Good local-network performance** — the display should be responsive and use available hardware acceleration where appropriate.
-4. **Deliberate audio and input routing** — users need clear choices for audio, microphone and dictation on every remote display.
-5. **Private-by-default networking** — no public exposure, strong device permissions and an understandable security model.
-6. **Recoverable sessions** — closing a viewer or losing a connection must not leave the desktop in a confusing state.
+1. **Reliable pairing**: users must be able to add and remove trusted machines without hard-coded hosts or confusing setup.
+2. **Clear display ownership**: an extended monitor must own its own desktop state and must not hijack the laptop's tiles or pointer.
+3. **Good local-network performance**: the display should be responsive and use available hardware acceleration where appropriate.
+4. **Deliberate audio and input routing**: users need clear choices for audio, microphone and dictation on every remote display.
+5. **Private-by-default networking**: no public exposure, strong device permissions and an understandable security model.
+6. **Recoverable sessions**: closing a viewer or losing a connection must not leave the desktop in a confusing state.
 
 ## Roadmap
 
