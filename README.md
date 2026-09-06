@@ -12,10 +12,9 @@ The project started with a practical problem. A laptop may have no external moni
 
 ## The concept at a glance
 
-```mermaid
-flowchart LR
-    A[Omarchy laptop<br/>Primary desktop] <-. Pointer crosses the display edge .-> C[Warp extended display<br/>Own workspace and tiles]
-```
+<p align="center">
+  <img src="assets/omarchy-warp-display-layout.svg" alt="Omarchy laptop and browser display connected by a straight dotted pointer path." width="60%">
+</p>
 
 The browser is the display surface. The laptop remains the primary computer; a trusted paired machine supplies the additional screen over the private local network, without publishing a public remote-desktop service.
 
