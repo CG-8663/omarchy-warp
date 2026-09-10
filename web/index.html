@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Omarchy Warp viewer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #091417;
+      --ink: #e6f2ef;
+      --muted: #8aa8a0;
+      --line: #1e3a36;
+      --accent: #39a98d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font: 16px/1.5 system-ui, sans-serif;
+      background: radial-gradient(ellipse at 50% 0, #102427 0, var(--bg) 55%);
+      color: var(--ink);
+    }
+    main { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+    .eyebrow { letter-spacing: 0.14em; text-transform: uppercase; font-size: 0.72rem; color: var(--accent); }
+    h1 { font-size: 2rem; line-height: 1.15; margin: 8px 0 16px; }
+    p { color: var(--muted); }
+    .panel {
+      margin-top: 28px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 18px 20px;
+      background: #0d1c1e;
+    }
+    .panel h2 { margin: 0 0 8px; font-size: 1rem; }
+    code { color: var(--ink); }
+    @media (max-width: 640px) { h1 { font-size: 1.6rem; } }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Browser receiver · no native install</p>
+    <h1>Omarchy Warp viewer</h1>
+    <p>This page is the first-release receiver shell. A trusted browser on macOS, Windows or Linux should open a private viewer URL. No Python, Bash, SSH tooling or extension is required on this machine.</p>
+    <section class="panel" aria-labelledby="status-heading">
+      <h2 id="status-heading">Session status</h2>
+      <p>No source gateway is served from this tree yet. Pairing, authenticated WebSocket transport and noVNC assets are not published here. The Omarchy laptop reports dependencies with <code>python3 tools/preflight.py</code> without starting a session.</p>
+    </section>
+  </main>
+</body>
+</html>

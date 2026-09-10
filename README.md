@@ -102,11 +102,22 @@ The near-term plan is to stabilise the LAN experience before expanding scope.
 - Harden permissions and network exposure.
 - Evaluate secure remote access and additional platform support only after the local workflow is reliable.
 
-## No code published yet
+## First published code
 
-This repository is currently a project overview and testing log. It does **not** contain application code or installation instructions yet.
+The recovered prototype is **not** in this tree. What is here now:
 
-Code will be considered for publication after the first release path is tested, the security boundaries are clear, and the user experience is dependable enough for others to evaluate safely.
+- `tools/preflight.py` — read-only Omarchy source dependency report. It does not start WARP, bind ports, or run recovered binaries.
+- `web/index.html` — static browser-receiver shell. It does not connect to VNC and does not claim a live session.
+- `docs/RELEASE-PROPOSAL.md` — first-release requirements: browser-only receiver on macOS, Windows and Linux.
+
+Run the checks:
+
+```bash
+python3 -m unittest tools.test_preflight web.test_index -v
+python3 tools/preflight.py --root /tmp/warp-home
+```
+
+`ready_for_install_preview` is a command listing, not permission to install. Do not copy jamest configuration onto superkevin. Native receiver, SSH launch into a Mac, and unauthenticated VNC are out of first-release scope.
 
 ## Feedback
 
