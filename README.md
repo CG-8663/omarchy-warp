@@ -4,7 +4,13 @@
 
 # Omarchy Warp
 
-> **Status: early prototype. Testing for a first release.**
+> **Public pre-release. Not recommended to use.**
+>
+> This repository is public so people can follow the work. It is not a supported
+> install, not a security-reviewed release, and not a daily driver. The recovered
+> Linux control binaries are not in this tree. Starting a live extended display
+> is unfinished. Look, comment, or wait. Do not run this on a machine you care
+> about. See [docs/DESKTOP-INSTALL.md](docs/DESKTOP-INSTALL.md).
 
 Omarchy Warp explores a simple idea: use a trusted browser on another machine as extra desktop space for an Omarchy laptop.
 
@@ -104,20 +110,24 @@ The near-term plan is to stabilise the LAN experience before expanding scope.
 
 ## First published code
 
-The recovered prototype is **not** in this tree. What is here now:
+The recovered prototype binaries are **not** in this tree. What is here now:
 
-- `tools/preflight.py` — read-only Omarchy source dependency report. It does not start WARP, bind ports, or run recovered binaries.
+- `tools/preflight.py` — read-only Omarchy source dependency report. It does not start Warp, bind ports, or run recovered binaries.
+- `tools/install.py` — per-user preview/apply/rollback for native source launchers. Preview is the default.
+- `omarchy-plugin/` — optional ⚡ bar widget. Not installed by `install.py`.
 - `web/index.html` — static browser-receiver shell. It does not connect to VNC and does not claim a live session.
 - `docs/RELEASE-PROPOSAL.md` — first-release requirements: browser-only receiver on macOS, Windows and Linux.
+- `docs/DESKTOP-INSTALL.md` — how the first desktop-tool install was exercised, and why it is not recommended.
 
 Run the checks:
 
 ```bash
-python3 -m unittest tools.test_preflight web.test_index -v
+python3 -m unittest tools.test_preflight tools.test_install web.test_index -v
 python3 tools/preflight.py --root /tmp/warp-home
+python3 tools/install.py --source /path/to/private-source-packet --web web/index.html --root /tmp/warp-home
 ```
 
-`ready_for_install_preview` is a command listing, not permission to install. Do not copy jamest configuration onto superkevin. Native receiver, SSH launch into a Mac, and unauthenticated VNC are out of first-release scope.
+`ready_for_install_preview` is a command listing, not permission to install. `tools/install.py` previews by default, refuses unknown files, snapshots rollback, and does not copy another account's pairing records, install the native receiver/agent/plugin, restart the Omarchy shell, or run a package manager. Native receiver, SSH launch into a Mac, and unauthenticated VNC are out of first-release scope.
 
 ## Feedback
 
