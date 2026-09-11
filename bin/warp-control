@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+import sys
 
 CONFIG = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'omarchy-warp'
 STATE = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'omarchy-warp'
@@ -26,6 +27,11 @@ ROUTES = ('ethernet-lan', 'wifi-lan', 'tailscale')
 CGNAT = ipaddress.ip_network('100.64.0.0/10')
 
 class WarpError(RuntimeError): pass
+
+class WarpNeedsPassword(WarpError):
+    def __init__(self, preview, message='Host verified. Enter the account password on that computer to install this laptop’s SSH key.'):
+        super().__init__(message)
+        self.preview = preview
 
 def run(args, timeout=20, check=True, env=None):
     try:
@@ -112,6 +118,59 @@ def ssh(host, address, command, keys=KEYS, timeout=15):
                 '-o', f'StrictHostKeyChecking={checking}', '-o', f'UserKnownHostsFile={keys}',
                 f'{user}@{address}', command], timeout=timeout)
 
+def local_public_key():
+    home = Path.home() / '.ssh'
+    for name in ('id_ed25519.pub', 'id_ed25519_kevin8663.pub', 'id_rsa.pub'):
+        path = home / name
+        if path.is_file():
+            text = path.read_text().strip()
+            if text:
+                return text
+    raise WarpError('No SSH public key found on this laptop. Create one with ssh-keygen -t ed25519.')
+
+def pair_password():
+    path = os.environ.get('WARP_PAIR_PASSWORD_FILE', '')
+    if not path:
+        return None
+    text = Path(path).read_text()
+    return text.splitlines()[0] if text else None
+
+def password_askpass_env(password):
+    private_dir(CONFIG)
+    fd, secret = tempfile.mkstemp(prefix='.warp-ask-', dir=CONFIG)
+    os.write(fd, (password + '\n').encode())
+    os.close(fd)
+    os.chmod(secret, 0o600)
+    helper = CONFIG / 'askpass'
+    helper.write_text('#!/bin/sh\nexec cat "$WARP_SSH_ASKPASS_FILE"\n')
+    os.chmod(helper, 0o700)
+    env = os.environ.copy()
+    env['SSH_ASKPASS'] = str(helper)
+    env['SSH_ASKPASS_REQUIRE'] = 'force'
+    env['DISPLAY'] = env.get('DISPLAY') or env.get('WAYLAND_DISPLAY') or ':0'
+    env['WARP_SSH_ASKPASS_FILE'] = secret
+    return env, secret
+
+def install_login_key(user, address, password, keys):
+    pub = local_public_key()
+    remote = (
+        'umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; '
+        f'grep -Fqx {shlex.quote(pub)} "$HOME/.ssh/authorized_keys" || '
+        f'printf "%s\\n" {shlex.quote(pub)} >> "$HOME/.ssh/authorized_keys"'
+    )
+    checking = 'accept-new' if lan_trusted() else 'yes'
+    env, secret = password_askpass_env(password)
+    try:
+        return run([
+            'ssh', '-o', 'PreferredAuthentications=keyboard-interactive,password',
+            '-o', 'PubkeyAuthentication=no', '-o', 'NumberOfPasswordPrompts=1',
+            '-o', f'StrictHostKeyChecking={checking}', '-o', f'UserKnownHostsFile={keys}',
+            f'{user}@{address}', remote
+        ], timeout=25, env=env)
+    finally:
+        if os.path.exists(secret):
+            os.unlink(secret)
+
 def checked_host(ident):
     found = next((h for h in hosts() if h.get('id') == ident), None)
     if not found: raise WarpError('Choose a paired computer first.')
@@ -189,19 +248,33 @@ def pair_confirm(preview):
         with os.fdopen(fd, 'w') as stream:
             os.fchmod(stream.fileno(), 0o600)
             stream.write(key_text)
-        reachable = None
+        password, reachable, failures = pair_password(), None, []
         for route in fresh['transports']:
             try:
                 check = ssh(fresh, route['address'], PROBE, keys=temp)
                 reachable = {'receiverReady': 'WARP_RECEIVER_READY' in check.stdout,
                              'os': check.stdout.splitlines()[0] if check.stdout else 'unknown'}
                 break
-            except WarpError: continue
+            except WarpError as exc:
+                failures.append(f"{route['kind']}: {exc}")
+        if not reachable and password:
+            user = default_ssh_user(fresh.get('sshUser', ''))
+            for route in fresh['transports']:
+                if uses_tailscale_ssh(route['address'], route['kind']):
+                    continue
+                try:
+                    install_login_key(user, route['address'], password, temp)
+                    check = ssh(fresh, route['address'], PROBE, keys=temp)
+                    reachable = {'receiverReady': 'WARP_RECEIVER_READY' in check.stdout,
+                                 'os': check.stdout.splitlines()[0] if check.stdout else 'unknown',
+                                 'keyInstalled': True}
+                    break
+                except WarpError as exc:
+                    failures.append(f"{route['kind']} password: {exc}")
         if not reachable:
-            if lan_trusted() or any(uses_tailscale_ssh(r['address'], r['kind']) for r in fresh['transports']):
-                reachable = {'receiverReady': False, 'os': 'unknown'}
-            else:
-                raise WarpError("Host verified, but authenticated SSH failed. Authorize this laptop's SSH key on that computer first.")
+            if password:
+                raise WarpError('Password was tried, but SSH still failed.\n' + '\n'.join(failures))
+            raise WarpNeedsPassword(fresh)
         all_hosts = hosts()
         existing = next((h for h in all_hosts if h.get('fingerprint') == fresh['fingerprint'] or
                          any(r.get('address') == n['address'] for r in h.get('transports', []) for n in fresh['transports'])), None)
@@ -468,6 +541,9 @@ def main():
                     'pair-preview': lambda: pairing_preview(data), 'pair-confirm': lambda: pair_confirm(data), 'launch': lambda: launch(data),
                     'settings': lambda: settings_action(data)}
         print(json.dumps(commands[args.action]()))
+    except WarpNeedsPassword as exc:
+        print(json.dumps({'error': 'needs-password', 'message': str(exc), 'preview': exc.preview}))
+        raise SystemExit(2)
     except (WarpError, OSError, ValueError, KeyError) as exc:
         print(json.dumps({'error': str(exc)}))
         raise SystemExit(1)

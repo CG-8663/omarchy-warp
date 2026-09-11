@@ -63,6 +63,40 @@ class PairingTrustTests(unittest.TestCase):
         self.assertEqual(preview["fingerprint"], "tailscale-ssh")
         self.assertFalse(preview["needsFingerprint"])
 
+    def test_local_public_key_reads_ed25519(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ssh_dir = Path(temp) / ".ssh"
+            ssh_dir.mkdir()
+            (ssh_dir / "id_ed25519.pub").write_text("ssh-ed25519 AAAA test@host\n")
+            with patch.object(Path, "home", return_value=Path(temp)):
+                self.assertEqual(warp.local_public_key(), "ssh-ed25519 AAAA test@host")
+
+    def test_pair_confirm_asks_for_password_when_key_auth_fails(self):
+        info = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.168.68.55", 22))]
+        with tempfile.TemporaryDirectory() as temp:
+            warp.CONFIG = Path(temp)
+            warp.SETTINGS = Path(temp) / "settings.json"
+            warp.HOSTS = Path(temp) / "hosts.json"
+            warp.KEYS = Path(temp) / "known_hosts"
+            preview = {
+                "name": "Studio Mac",
+                "sshUser": "jamest",
+                "transports": [{"kind": "ethernet-lan", "address": "192.168.68.55", "priority": 1}],
+                "keyLines": [],
+                "fingerprint": "trusted-lan",
+                "unreachable": [],
+                "needsFingerprint": False,
+                "lanTrusted": True,
+            }
+            with patch.dict(os.environ, {"USER": "superkevin", "WARP_PAIR_PASSWORD_FILE": ""}, clear=False), \
+                 patch.object(socket, "getaddrinfo", return_value=info), \
+                 patch.object(warp, "pairing_preview", return_value=preview), \
+                 patch.object(warp, "pair_password", return_value=None), \
+                 patch.object(warp, "ssh", side_effect=warp.WarpError("Permission denied")):
+                with self.assertRaises(warp.WarpNeedsPassword) as caught:
+                    warp.pair_confirm(preview)
+        self.assertEqual(caught.exception.preview["fingerprint"], "trusted-lan")
+
 
 if __name__ == "__main__":
     unittest.main()
