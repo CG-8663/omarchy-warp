@@ -149,6 +149,16 @@ def plan(root: Path, source: Path, web: Path | None, icon: Path | None, plugin: 
         if not web.is_file():
             raise InstallError(f"Web shell missing: {web}")
         actions.append({"op": "install-file", "from": str(web), "to": str(paths["version"] / "web" / "index.html"), "mode": 0o644})
+        web_credits = web.parent / "credits"
+        if web_credits.is_dir():
+            for item in sorted(web_credits.iterdir()):
+                if item.is_file() and item.suffix.lower() in {".png", ".svg", ".jpg", ".webp"}:
+                    actions.append({"op": "install-file", "from": str(item), "to": str(paths["version"] / "web" / "credits" / item.name), "mode": 0o644})
+    credits_dir = source / "assets" / "credits"
+    if credits_dir.is_dir():
+        for item in sorted(credits_dir.iterdir()):
+            if item.is_file() and item.suffix.lower() in {".png", ".svg", ".jpg", ".webp"}:
+                actions.append({"op": "install-file", "from": str(item), "to": str(paths["version"] / "assets" / "credits" / item.name), "mode": 0o644})
 
     if icon and icon.is_file():
         dest_icon = paths["version"] / "assets" / icon.name

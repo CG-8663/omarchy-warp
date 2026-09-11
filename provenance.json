@@ -3,8 +3,8 @@
   "files": [
     {
       "path": "bin/warp-dashboard",
-      "sha256": "206b8f169e5ab74316e0aef4f287e6131ca557c66a9d3edfb871f779b0afb57c",
-      "bytes": 15985
+      "sha256": "f4ce17538502039fbb31d576068af5a03eba0134f2c62bf6d18b827df10b40ed",
+      "bytes": 18207
     },
     {
       "path": "bin/warp-control",
@@ -35,6 +35,26 @@
       "path": "omarchy-plugin/manifest.json",
       "sha256": "186bbe04388c76c7b56ca039a6ef0ac792e86e55f5a5da58d6e42f41797aed63",
       "bytes": 553
+    },
+    {
+      "path": "assets/credits/chronara-ai.png",
+      "sha256": "59ec1168a360f179a14f35b698c316fcf6b1a4b700d42d4c222f78be551f2789",
+      "bytes": 117906
+    },
+    {
+      "path": "assets/credits/super-kevin-standing.png",
+      "sha256": "25e0e10ab92d3f40eac069bd0c304b71ae875a7ea3ca1e0bcb0333a0bb40ed45",
+      "bytes": 575534
+    },
+    {
+      "path": "web/credits/chronara-ai.png",
+      "sha256": "59ec1168a360f179a14f35b698c316fcf6b1a4b700d42d4c222f78be551f2789",
+      "bytes": 117906
+    },
+    {
+      "path": "web/credits/super-kevin-standing.png",
+      "sha256": "25e0e10ab92d3f40eac069bd0c304b71ae875a7ea3ca1e0bcb0333a0bb40ed45",
+      "bytes": 575534
     }
   ]
 }

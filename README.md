@@ -128,6 +128,7 @@ The near-term plan is to stabilise the LAN experience before expanding scope.
 - `web/index.html` — static browser-receiver shell. It does not connect to VNC and does not claim a live session.
 - `docs/RELEASE-PROPOSAL.md` — first-release requirements: browser-only receiver on macOS, Windows and Linux.
 - `docs/DESKTOP-INSTALL.md` — what the installer does and does not do.
+- `docs/BROWSER-TEST.md` — how to try the viewer shell in Windows Edge, Chrome and Firefox.
 
 The native macOS receiver, resource agent, and broker are not in this tree.
 
@@ -140,10 +141,16 @@ python3 -m unittest tools.test_preflight tools.test_install web.test_index -v
 
 `ready_for_install_preview` is a command listing, not permission to start a display. Native receiver, SSH launch into a Mac, and unauthenticated VNC are out of first-release scope.
 
+## Credits
+
+- **Chronara AI** — project home for this research snapshot.
+- **Super Kevin** — Omarchy laptop operator. Standing portrait: `assets/credits/super-kevin-standing.png`.
+- **James Tervit** — main developer. Creator and leader of Super Kevin and Chronara.
+
+The viewer shell and the Warp dashboard Credits window show the same three names. James Tervit is credited in text; Super Kevin and Chronara AI use local artwork.
+
+The title artwork uses the [Omarchy Font](https://github.com/markcuda/Omarchy-Font) by Mark Cuda. It is an MIT-licensed fan project and is not affiliated with Omarchy or 37signals.
+
 ## Feedback
 
 Questions and feedback are welcome, especially from people who work across a laptop, a desktop machine, TVs or other network-connected displays. The useful question is simple: would browser-based extended desktop space make your setup easier?
-
-## Credits
-
-The title artwork uses the [Omarchy Font](https://github.com/markcuda/Omarchy-Font) by Mark Cuda. It is an MIT-licensed fan project and is not affiliated with Omarchy or 37signals.

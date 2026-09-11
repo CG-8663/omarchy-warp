@@ -27,6 +27,17 @@ class ViewerShellTests(unittest.TestCase):
         self.assertIn("no source gateway is served", lowered)
         self.assertNotIn("connected · omarchy laptop", lowered)
 
+    def test_credits_chronara_kevin_and_james(self):
+        lowered = HTML.lower()
+        self.assertIn("chronara ai", lowered)
+        self.assertIn("super kevin", lowered)
+        self.assertIn("james tervit", lowered)
+        self.assertIn("main developer", lowered)
+        self.assertIn("credits/super-kevin-standing.png", HTML)
+        self.assertIn("credits/chronara-ai.png", HTML)
+        self.assertIn("early beta", lowered)
+        self.assertIn("windows", lowered)
+
 
 if __name__ == "__main__":
     unittest.main()

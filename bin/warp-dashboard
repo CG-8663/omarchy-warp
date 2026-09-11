@@ -8,9 +8,22 @@ import sys
 import threading
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gio, GLib, Gtk
+gi.require_version('Gdk', '4.0')
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 CONTROL = str(Path(__file__).with_name('warp-control'))
+SHARE = Path(__file__).resolve().parent.parent
+CREDITS_DIR = SHARE / 'assets' / 'credits'
+CSS = b"""
+window.warp-window { background-color: #091417; }
+.warp-beta {
+  color: #39a98d;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.warp-muted { color: #8aa8a0; }
+.warp-credit-name { font-weight: 700; }
+"""
 
 def label(text, heading=False):
     widget = Gtk.Label(label=text, xalign=0, wrap=True, selectable=True)
@@ -50,19 +63,30 @@ class Dashboard(Gtk.Application):
             self.window.present()
             return
         self.window = Gtk.ApplicationWindow(application=self, title='Omarchy Warp')
-        self.window.set_default_size(720, 680)
+        self.window.set_default_size(760, 740)
+        self.window.add_css_class('warp-window')
+        css = Gtk.CssProvider()
+        css.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            self.window.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         content = box()
         margins(content)
         title_row = Gtk.Box(spacing=10)
         title = label('Omarchy Warp', True)
         title.set_hexpand(True)
         title_row.append(title)
+        title_row.append(button('Credits', lambda *_: self.credits_window()))
         close = button('×', lambda *_: self.window.close())
         close.set_tooltip_text('Close Omarchy Warp')
         close.add_css_class('circular')
         title_row.append(close)
         content.append(title_row)
-        content.append(label('Choose where your laptop desktop appears. Apps and files stay on the laptop; an extended Warp output behaves as another monitor.'))
+        beta = label('Early beta. Public, but not recommended for daily use.')
+        beta.add_css_class('warp-beta')
+        content.append(beta)
+        intro = label('Choose where your laptop desktop appears. Apps and files stay on the laptop; an extended Warp output behaves as another monitor.')
+        intro.add_css_class('warp-muted')
+        content.append(intro)
         actions = Gtk.Box(spacing=10)
         actions.append(button('Pair a computer…', lambda *_: self.pair_window(), True))
         actions.append(button('Arrange monitors…', lambda *_: self.layout_window()))
@@ -283,6 +307,33 @@ class Dashboard(Gtk.Application):
             self.async_work(lambda: call('pair-confirm', preview), done, status)
         body.append(button('Trust this fingerprint and pair', trust, True))
         body.append(button('Cancel', lambda *_: win.close()))
+        win.present()
+
+    def credits_window(self):
+        win, body = self.child_window('Credits', width=560, height=620)
+        body.append(label('Credits', True))
+        body.append(label('Omarchy Warp is an early-beta Chronara research snapshot.'))
+        people = [
+            ('chronara-ai.png', 'Chronara AI', 'Project home for this research snapshot.'),
+            ('super-kevin-standing.png', 'Super Kevin', 'Omarchy laptop operator. Standing portrait of the Super Kevin character.'),
+            (None, 'James Tervit', 'Main developer. Creator and leader of Super Kevin and Chronara.'),
+        ]
+        for filename, name, blurb in people:
+            row = Gtk.Box(spacing=14)
+            path = CREDITS_DIR / filename if filename else None
+            if path and path.is_file():
+                picture = Gtk.Picture.new_for_filename(str(path))
+                picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+                picture.set_size_request(120, 120)
+                row.append(picture)
+            text = box(spacing=4)
+            name_label = label(name)
+            name_label.add_css_class('warp-credit-name')
+            text.append(name_label)
+            text.append(label(blurb))
+            row.append(text)
+            body.append(row)
+        body.append(button('Close', lambda *_: win.close()))
         win.present()
 
 if __name__ == '__main__':
