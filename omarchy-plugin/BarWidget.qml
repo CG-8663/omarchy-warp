@@ -1,35 +1,72 @@
 import QtQuick
 import Quickshell
 import qs.Ui as Ui
+import qs.Commons
 
 Ui.BarWidget {
   id: root
   moduleName: "io.chronara.omarchy-warp"
-  // Warp is a host-side control. Showing it on HEADLESS outputs would allow
-  // a remote monitor to recursively create another remote monitor.
+
   readonly property var hostWindow: QsWindow.window
-  visible: !!hostWindow && !!hostWindow.screen && hostWindow.screen.name === "eDP-1"
-  // The dashboard has its own process and cannot take down the desktop shell.
-  // Keep the shell widget deliberately small: one click opens Warp; the next
-  // click closes its independent dashboard process.
-  function toggle() {
-    Quickshell.execDetached([
-      "/bin/sh", "-c",
-      "if pgrep -u \"$(id -u)\" -f '[/]warp-dashboard' >/dev/null; then "
-        + "pkill -u \"$(id -u)\" -f '[/]warp-dashboard'; "
-        + "else warp-dashboard; fi"
-    ])
+  // Hide on Warp-owned headless outputs so a remote screen cannot nest another Warp.
+  visible: {
+    var window = hostWindow
+    if (!window || !window.screen) return true
+    var name = String(window.screen.name || "")
+    return name.indexOf("HEADLESS") === -1
+  }
+
+  readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
+  readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
+
+  function injectPanel() {
+    var target = panelLoader.item
+    if (!target) return
+    if ("bar" in target) target.bar = root.bar
+    if ("settings" in target) target.settings = root.settings
+    if ("anchorItem" in target) target.anchorItem = button
+    if ("hostWidget" in target) target.hostWidget = root
+  }
+
+  function togglePanel() {
+    if (panelLoader.item && panelLoader.item.toggle) panelLoader.item.toggle()
+  }
+
+  function open() {
+    if (panelLoader.item && panelLoader.item.open) panelLoader.item.open()
+  }
+
+  function close() {
+    if (panelLoader.item && panelLoader.item.close) panelLoader.item.close()
+  }
+
+  function closeForPopoutSwitch() {
+    if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
   }
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  onBarChanged: injectPanel()
+  onSettingsChanged: injectPanel()
+
+  Loader {
+    id: panelLoader
+    active: true
+    source: Qt.resolvedUrl("Panel.qml")
+    visible: false
+    onLoaded: {
+      root.injectPanel()
+      Qt.callLater(root.injectPanel)
+    }
+  }
+
   Ui.WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    tooltipText: "Omarchy Warp: pair a computer or start a display"
+    tooltipText: "Omarchy Warp"
     text: "⚡"
-    onPressed: root.toggle()
+    onPressed: root.togglePanel()
   }
 }

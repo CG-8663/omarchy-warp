@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import threading
 import gi
 gi.require_version('Gtk', '4.0')
@@ -43,10 +44,24 @@ def margins(widget, size=22):
     for side in ('top', 'bottom', 'start', 'end'):
         getattr(widget, 'set_margin_' + side)(size)
 
-def call(action, payload=None):
-    result = subprocess.run([CONTROL, action, json.dumps(payload or {})], capture_output=True, text=True, timeout=150)
+def call(action, payload=None, password=None):
+    env = os.environ.copy()
+    secret = None
+    if password is not None:
+        fd, secret = tempfile.mkstemp(prefix='.warp-pw-')
+        os.write(fd, password.encode())
+        os.close(fd)
+        os.chmod(secret, 0o600)
+        env['WARP_PAIR_PASSWORD_FILE'] = secret
+    try:
+        result = subprocess.run([CONTROL, action, json.dumps(payload or {})], capture_output=True, text=True, timeout=150, env=env)
+    finally:
+        if secret and os.path.exists(secret):
+            os.unlink(secret)
     try: data = json.loads(result.stdout)
     except ValueError: raise RuntimeError((result.stderr or result.stdout or 'Warp command failed')[-1800:])
+    if isinstance(data, dict) and data.get('error') == 'needs-password':
+        return data
     if result.returncode or isinstance(data, dict) and data.get('error'):
         raise RuntimeError(data.get('error', 'Warp command failed'))
     return data
@@ -97,7 +112,7 @@ class Dashboard(Gtk.Application):
         self.host_select = Gtk.DropDown(model=Gtk.StringList.new([]))
         self.host_select.set_selected(Gtk.INVALID_LIST_POSITION)
         content.append(self.host_select)
-        content.append(label('Connections prefer Ethernet, then Wi-Fi. Tailscale is the remote fallback.'))
+        content.append(label('Connections prefer Ethernet, then Wi-Fi. Tailscale SSH is automatic. Local LAN is trusted, so Warp does not ask you to type SSH details.'))
         self.mode = Gtk.DropDown(model=Gtk.StringList.new(['Mirror a laptop screen', 'Extended desktop']))
         self.mode.set_selected(1)
         self.mode.connect('notify::selected', lambda *_: self.refresh_screen_choices())
@@ -115,7 +130,7 @@ class Dashboard(Gtk.Application):
         resources.attach(self.audio, 1, 0, 1, 1)
         resources.attach(self.dictation, 1, 1, 1, 1)
         content.append(resources)
-        content.append(label('Current display transport: VNC over private SSH. Client audio and microphone need the WebRTC bridge. Preferences are saved; no microphone is enabled by this window.'))
+        content.append(label('Current display transport: private session over trusted LAN or Tailscale SSH. Client audio and microphone need the WebRTC bridge. Preferences are saved; no microphone is enabled by this window.'))
         footer = Gtk.Box(spacing=12)
         self.launch_button = button('Review and start display', lambda *_: self.review_launch(), True)
         footer.append(self.launch_button)
@@ -192,7 +207,7 @@ class Dashboard(Gtk.Application):
         win, body = self.child_window('Start this display?', height=340)
         body.append(label(f"{payload['mode'].title()} desktop → {host['name']}", True))
         body.append(label('Screen: ' + self.screen_choices[screen]['label']))
-        body.append(label('Connection: Ethernet first, Wi-Fi second, Tailscale fallback.'))
+        body.append(label('Connection: Ethernet first, Wi-Fi second, then Tailscale SSH. Local LAN is trusted.'))
         body.append(label('This starts the display as another monitor; it does not launch a browser. Audio and dictation routing are preferences for the pending WebRTC bridge; microphone capture stays off.'))
         actions = Gtk.Box(spacing=12)
         def start(*_):
@@ -244,18 +259,20 @@ class Dashboard(Gtk.Application):
     def pair_window(self):
         win, body = self.child_window('Pair a computer', height=700)
         body.append(label('Add a display destination', True))
-        body.append(label('Use an SSH-ready Mac or Linux PC. Discovery lists local SSH services, known LAN neighbours, and your online Tailscale peers.'))
+        body.append(label('Add a computer on the trusted local LAN or over Tailscale. Tailscale SSH is used when the destination is a Tailscale peer. On the LAN, if this laptop’s key is not yet authorized, Warp asks once for that computer’s account password and installs the key. SSH tunnels stay in use after that.'))
         discovery = Gtk.DropDown(model=Gtk.StringList.new(['Scan to find computers, or enter an address below']))
         candidates = []
         body.append(discovery)
         form = Gtk.Grid(column_spacing=12, row_spacing=9)
         entries = {}
-        for row, (key, title) in enumerate([('name', 'Computer name'), ('sshUser', 'SSH username'), ('ethernet-lan', 'Ethernet LAN address'), ('wifi-lan', 'Wi-Fi LAN address'), ('tailscale', 'Tailscale address')]):
+        for row, (key, title) in enumerate([('name', 'Computer name'), ('ethernet-lan', 'Ethernet LAN address'), ('wifi-lan', 'Wi-Fi LAN address'), ('tailscale', 'Tailscale address')]):
             field = Gtk.Entry(hexpand=True)
             entries[key] = field
             form.attach(label(title), 0, row, 1, 1)
             form.attach(field, 1, row, 1, 1)
-        status = label('Enter the computer’s addresses. Only responding addresses with the same host key will be paired.')
+        lan_trusted = Gtk.CheckButton(label='Local LAN is trusted')
+        lan_trusted.set_active(True)
+        status = label('Enter a name and a LAN or Tailscale address. Local LAN is trusted. If key login is not ready, you will be asked for the destination account password once.')
         def discovered(result):
             candidates[:] = result
             discovery.set_model(Gtk.StringList.new([f"{c['name']} — {c['address']} ({'remote' if c['kind'] == 'tailscale' else 'LAN'})" for c in result]))
@@ -276,14 +293,72 @@ class Dashboard(Gtk.Application):
                 status.set_text('Discovery cannot tell whether the destination uses a cable. Move its address to Wi-Fi if needed; Ethernet is tried first.')
         discovery.connect('notify::selected', choose)
         body.append(form)
+        body.append(lan_trusted)
         body.append(status)
         def inspect(*_):
-            status.set_text('Checking the SSH host key…')
+            call('settings', {'lanTrusted': lan_trusted.get_active()})
             data = {key: widget.get_text() for key, widget in entries.items()}
-            self.async_work(lambda: call('pair-preview', data), lambda preview: self.trust_window(win, preview), status)
-        body.append(button('Review and pair', inspect, True))
+            data['sshUser'] = os.environ.get('USER', '')
+            status.set_text('Checking the destination…')
+            def after_preview(preview):
+                if preview.get('needsFingerprint'):
+                    self.trust_window(win, preview)
+                    return
+                self.finish_pair(win, preview, status)
+            self.async_work(lambda: call('pair-preview', data), after_preview, status)
+        body.append(button('Pair this computer', inspect, True))
         body.append(button('Close', lambda *_: win.close()))
         win.present()
+
+    def finish_pair(self, parent, preview, status):
+        status.set_text('Trying Tailscale SSH, then this laptop’s key…')
+        def done(result):
+            if isinstance(result, dict) and result.get('error') == 'needs-password':
+                self.password_window(parent, result.get('preview') or preview)
+                return
+            parent.close()
+            self.refresh(result['id'])
+            if result.get('keyInstalled'):
+                self.status.set_text(f"Paired {result['name']}. This laptop’s SSH key is now on that computer.")
+            elif not result.get('receiverReady'):
+                self.status.set_text(f"Paired {result['name']}. SSH is ready. A native receiver is only needed for the older display path.")
+            else:
+                self.status.set_text(f"Paired {result['name']} on trusted LAN or Tailscale SSH.")
+        self.async_work(lambda: call('pair-confirm', preview), done, status)
+
+    def password_window(self, parent, preview):
+        win, body = self.child_window('Account password', height=380)
+        win.set_transient_for(parent)
+        body.append(label('Host verified', True))
+        body.append(label('Authenticated SSH needs the account password on that computer once, so Warp can install this laptop’s public key. After that, sessions use key or Tailscale SSH tunnels.'))
+        if preview.get('fingerprint'):
+            body.append(label('Fingerprint: ' + preview['fingerprint']))
+        body.append(label('\n'.join(f"{r['kind']}: {r['address']}" for r in preview.get('transports', []))))
+        field = Gtk.PasswordEntry()
+        field.set_show_peek_icon(True)
+        field.set_hexpand(True)
+        body.append(field)
+        status = label('Password is used only to install this laptop’s key. It is not stored.')
+        body.append(status)
+        def submit(*_):
+            password = field.get_text()
+            if not password:
+                status.set_text('Enter the account password on that computer.')
+                return
+            status.set_text('Installing this laptop’s SSH key…')
+            def done(result):
+                if isinstance(result, dict) and result.get('error') == 'needs-password':
+                    status.set_text(result.get('message') or 'Password was not accepted.')
+                    return
+                win.close()
+                parent.close()
+                self.refresh(result['id'])
+                self.status.set_text(f"Paired {result['name']}. This laptop’s SSH key is now on that computer.")
+            self.async_work(lambda: call('pair-confirm', preview, password=password), done, status)
+        body.append(button('Install key and pair', submit, True))
+        body.append(button('Cancel', lambda *_: win.close()))
+        win.present()
+        field.grab_focus()
 
     def trust_window(self, parent, preview):
         win, body = self.child_window('Verify this computer', height=400)
@@ -297,14 +372,8 @@ class Dashboard(Gtk.Application):
         status = label('Pairing verifies authenticated SSH and checks whether a receiver is installed.')
         body.append(status)
         def trust(*_):
-            status.set_text('Verifying and saving this paired computer…')
-            def done(result):
-                win.close()
-                parent.close()
-                self.refresh(result['id'])
-                if not result['receiverReady']:
-                    self.status.set_text('Computer paired. Install the Warp receiver on it before starting a display.')
-            self.async_work(lambda: call('pair-confirm', preview), done, status)
+            self.finish_pair(parent, preview, status)
+            win.close()
         body.append(button('Trust this fingerprint and pair', trust, True))
         body.append(button('Cancel', lambda *_: win.close()))
         win.present()
@@ -315,8 +384,8 @@ class Dashboard(Gtk.Application):
         body.append(label('Omarchy Warp is an early-beta Chronara research snapshot.'))
         people = [
             ('chronara-ai.png', 'Chronara AI', 'Project home for this research snapshot.'),
-            ('super-kevin-standing.png', 'Super Kevin', 'Omarchy laptop operator. Standing portrait of the Super Kevin character.'),
-            (None, 'James Tervit', 'Main developer. Creator and leader of Super Kevin and Chronara.'),
+            ('super-kevin-standing.png', 'Super Kevin', 'Contributor. Omarchy laptop operator. Standing portrait of the Super Kevin character.'),
+            (None, 'James Tervit', 'Contributor and main developer. Creator and leader of Super Kevin and Chronara.'),
         ]
         for filename, name, blurb in people:
             row = Gtk.Box(spacing=14)

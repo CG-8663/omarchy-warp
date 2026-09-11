@@ -78,7 +78,7 @@ Omarchy Warp is not trying to turn every browser into an unmanaged public remote
 
 ## Current testing scope
 
-The prototype is being tested on trusted devices on a local LAN. The current focus is on:
+The prototype is being tested on trusted devices on a local LAN. Local LAN is treated as trusted, so pairing does not ask for an SSH username or host fingerprint. Tailscale SSH is used automatically for Tailscale peers. The current focus is on:
 
 - Starting and closing virtual monitor sessions reliably.
 - Keeping each virtual monitor distinct from the laptop's own monitor and workspaces.
@@ -141,11 +141,14 @@ python3 -m unittest tools.test_preflight tools.test_install web.test_index -v
 
 `ready_for_install_preview` is a command listing, not permission to start a display. Native receiver, SSH launch into a Mac, and unauthenticated VNC are out of first-release scope.
 
-## Credits
+## Contributors
 
+This snapshot is submitted by three GitHub profiles: Super Kevin (`kevin8663`), James Tervit (`jimthedj65`), and Chronara Group (`CG-8663`).
+
+- **Super Kevin** (`kevin8663`) — contributor. Omarchy laptop operator. Standing portrait: `assets/credits/super-kevin-standing.png`.
+- **James Tervit** (`jimthedj65`) — contributor and main developer. Creator and leader of Super Kevin and Chronara.
+- **Chronara Group** (`CG-8663`) — GitHub publisher for this repository.
 - **Chronara AI** — project home for this research snapshot.
-- **Super Kevin** — Omarchy laptop operator. Standing portrait: `assets/credits/super-kevin-standing.png`.
-- **James Tervit** — main developer. Creator and leader of Super Kevin and Chronara.
 
 The viewer shell and the Warp dashboard Credits window show the same three names. James Tervit is credited in text; Super Kevin and Chronara AI use local artwork.
 

@@ -22,7 +22,7 @@ Do not send recovered receiver binaries, SSH keys, or `hosts.json`.
    - Early-beta label is visible.
    - No installer, extension or Python is requested.
    - Session status still says no source gateway is served.
-   - Credits show Chronara AI, Super Kevin standing, and James Tervit as main developer.
+   - Credits show Chronara AI, Super Kevin standing, and James Tervit. Super Kevin and James Tervit are contributors.
    - Resize the window and use fullscreen. The page should remain readable.
 4. Mark any missing browser as untested. Do not claim support you did not open.
 

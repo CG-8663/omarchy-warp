@@ -3,17 +3,17 @@
   "files": [
     {
       "path": "bin/warp-dashboard",
-      "sha256": "f4ce17538502039fbb31d576068af5a03eba0134f2c62bf6d18b827df10b40ed",
+      "sha256": "236fd1d1d8fcba402cb3e6b0cd45244c0e823b13250c57111582fdfab88175ff",
       "bytes": 18207
     },
     {
       "path": "bin/warp-control",
-      "sha256": "2a1ae879378d4c55af8a5a35b74bb7a978b826c1cee89af011b56123a9095994",
+      "sha256": "013cc6edb2a59e417143ed8fce457c3d55c6dba6e0568c33d610d8a37ccdf399",
       "bytes": 23652
     },
     {
       "path": "bin/omarchy-warp",
-      "sha256": "bb7bee3ee4cc057338a316ee7206e99f89c629975d2d99788d3e0999973a9d82",
+      "sha256": "211e26f8f3f5380e9f2c02ef5260a0d5db2cd0301b4f372400b95a76e31c6bbf",
       "bytes": 8387
     },
     {
@@ -23,17 +23,17 @@
     },
     {
       "path": "config/hosts.example.json",
-      "sha256": "b5afcc4febafd783e02f068fd16366c79998b63863cb305489bdf76a54c99d4c",
+      "sha256": "f714d67b23b138a003999293aa8f16105ffb3c278bedca7aba7d8230bfe183f1",
       "bytes": 447
     },
     {
       "path": "omarchy-plugin/BarWidget.qml",
-      "sha256": "e5c4160ba1d112941ebbece1159700a01fe677d8a6379f927d5918f0d1ab2bc0",
+      "sha256": "bcb28539e0ece5a5768ec55972bf8bb5e4a4d93e3f033419264749576a1f8922",
       "bytes": 1144
     },
     {
       "path": "omarchy-plugin/manifest.json",
-      "sha256": "186bbe04388c76c7b56ca039a6ef0ac792e86e55f5a5da58d6e42f41797aed63",
+      "sha256": "690adc955ad45484a8413625d54c7fc69b8348054207b348ece2d39ba8a7fa2d",
       "bytes": 553
     },
     {
@@ -55,6 +55,11 @@
       "path": "web/credits/super-kevin-standing.png",
       "sha256": "25e0e10ab92d3f40eac069bd0c304b71ae875a7ea3ca1e0bcb0333a0bb40ed45",
       "bytes": 575534
+    },
+    {
+      "path": "omarchy-plugin/Panel.qml",
+      "sha256": "584a07a7cba2bf2269dcc9936fe9a945680bb08a824af2296b9fd1b946035553",
+      "bytes": 6879
     }
   ]
 }
