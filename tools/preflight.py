@@ -6,8 +6,8 @@ import json
 import shutil
 from pathlib import Path
 
-COMMANDS = ("python3", "bash", "jq", "hyprctl", "ssh", "ip", "systemctl", "wayvnc")
-OPTIONAL_COMMANDS = ("ffmpeg", "pactl")
+COMMANDS = ("python3", "bash", "jq", "hyprctl", "ip", "systemctl", "wayvnc")
+OPTIONAL_COMMANDS = ("ffmpeg", "pactl", "ssh", "tailscale")
 
 
 def report(path: Path | None = None) -> dict:
@@ -25,7 +25,7 @@ def report(path: Path | None = None) -> dict:
         "receiver": "browser-only; no native receiver required on macOS, Windows or Linux",
         "missing_commands": missing,
         "missing_optional_commands": missing_optional,
-        "optional_note": "ffmpeg and pactl belong to the optional resource agent, not the browser receiver",
+        "optional_note": "ffmpeg and pactl belong to the optional resource agent. ssh and tailscale are optional: local LAN is trusted, and Tailscale SSH is automatic when a peer is used",
         "layout": layout,
         "ready_for_install_preview": not missing,
         "executed_source_binaries": False,

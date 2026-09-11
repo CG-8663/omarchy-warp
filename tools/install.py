@@ -33,7 +33,7 @@ FORBIDDEN_RELATIVE = (
     "omarchy-plugin/manifest.json",
     "scripts/deploy-dashboard-laptop.sh",
 )
-COMMANDS = ("python3", "bash", "jq", "hyprctl", "ssh", "ip", "systemctl", "wayvnc")
+COMMANDS = ("python3", "bash", "jq", "hyprctl", "ip", "systemctl", "wayvnc")
 
 
 class InstallError(RuntimeError):
