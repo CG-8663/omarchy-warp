@@ -29,6 +29,8 @@ def fake_source(root: Path) -> Path:
         "bin/omarchy-warp-agent": "#!/usr/bin/env bash\necho agent\n",
         "config/hosts.example.json": '{"version":1,"hosts":[]}\n',
         "config/hosts.json": '{"version":1,"hosts":[{"id":"jamest-secret"}]}\n',
+        "omarchy-plugin/BarWidget.qml": "text: \"bolt\"\n",
+        "omarchy-plugin/manifest.json": '{"id":"io.chronara.omarchy-warp"}\n',
     }
     for relative, body in bodies.items():
         path = source / relative
@@ -116,6 +118,17 @@ class InstallTests(unittest.TestCase):
         install.rollback(backup)
         self.assertFalse((self.root / ".local/bin/warp-dashboard").exists())
         self.assertFalse((self.root / ".local/share/applications/io.chronara.OmarchyWarp.desktop").exists())
+
+    def test_plugin_is_opt_in(self):
+        spec = install.plan(self.root, self.source, self.web, None, plugin=True)
+        install.apply_plan(spec)
+        self.assertTrue((self.root / ".config/omarchy/plugins/io.chronara.omarchy-warp/BarWidget.qml").is_file())
+        self.assertFalse((self.root / ".local/bin/omarchy-warp-receiver").exists())
+
+    def test_repo_tree_is_a_complete_source(self):
+        self.assertTrue((install.REPO / "bin/warp-dashboard").is_file())
+        self.assertTrue((install.REPO / "web/index.html").is_file())
+        self.assertTrue((install.REPO / "omarchy-plugin/BarWidget.qml").is_file())
 
     def test_missing_commands_block_apply(self):
         with patch.object(install.shutil, "which", return_value=None):

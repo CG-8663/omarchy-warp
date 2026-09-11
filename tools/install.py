@@ -7,14 +7,17 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 
-VERSION = "0.1.0-source"
+VERSION = "0.1.0-beta"
 LAUNCHER_MARKER = "# omarchy-warp-launcher"
 DESKTOP_ID = "io.chronara.OmarchyWarp.desktop"
 APPLICATION_ID = "io.chronara.OmarchyWarp"
+REPO = Path(__file__).resolve().parent.parent
+PLUGIN_ID = "io.chronara.omarchy-warp"
 
 REQUIRED_BINS = {
     "bin/warp-dashboard": "warp-dashboard",
@@ -66,6 +69,7 @@ def layout(root: Path) -> dict[str, Path]:
         "applications": root / ".local/share/applications",
         "desktop": root / ".local/share/applications" / DESKTOP_ID,
         "hosts": root / ".config/omarchy-warp/hosts.json",
+        "plugin": root / ".config/omarchy/plugins" / PLUGIN_ID,
     }
 
 
@@ -126,7 +130,7 @@ def preflight_missing() -> list[str]:
     return [name for name in COMMANDS if shutil.which(name) is None]
 
 
-def plan(root: Path, source: Path, web: Path | None, icon: Path | None) -> dict:
+def plan(root: Path, source: Path, web: Path | None, icon: Path | None, plugin: bool = False) -> dict:
     paths = layout(root)
     bins = verify_source(source)
     missing = preflight_missing()
@@ -160,13 +164,22 @@ def plan(root: Path, source: Path, web: Path | None, icon: Path | None) -> dict:
         actions.append({"op": "install-file", "from": str(example), "to": str(paths["version"] / "config/hosts.example.json"), "mode": 0o644})
     if not paths["hosts"].exists():
         actions.append({"op": "create-hosts-empty", "to": str(paths["hosts"])})
+    if plugin:
+        plugin_src = source / "omarchy-plugin"
+        widget = plugin_src / "BarWidget.qml"
+        manifest = plugin_src / "manifest.json"
+        if not widget.is_file() or not manifest.is_file():
+            raise InstallError("omarchy-plugin/ is missing BarWidget.qml or manifest.json")
+        actions.append({"op": "install-file", "from": str(manifest), "to": str(paths["plugin"] / "manifest.json"), "mode": 0o644})
+        actions.append({"op": "install-file", "from": str(widget), "to": str(paths["plugin"] / "BarWidget.qml"), "mode": 0o644})
 
     return {
         "role": "omarchy-source-install",
         "version": VERSION,
         "root": str(root),
         "source": str(source),
-        "receiver": "browser-only; native receiver, agent, broker and shell plugin are not installed",
+        "receiver": "browser-only; native receiver, agent and broker are not installed",
+        "plugin_requested": plugin,
         "missing_commands": missing,
         "ready_for_install_preview": not missing,
         "conflicts": conflicts,
@@ -267,6 +280,27 @@ def rollback(backup: Path) -> None:
             dest.unlink()
 
 
+def try_enable_plugin() -> str:
+    if shutil.which("omarchy-plugin-validate") is None or shutil.which("omarchy-shell") is None:
+        return "copied; enable later with: omarchy-plugin-enable io.chronara.omarchy-warp --section right"
+    env = os.environ.copy()
+    env.setdefault("OMARCHY_PATH", "/usr/share/omarchy")
+    plugin_dir = Path.home() / ".config/omarchy/plugins" / PLUGIN_ID
+    check = subprocess.run(["omarchy-plugin-validate", str(plugin_dir)], capture_output=True, text=True, env=env)
+    if check.returncode:
+        return "copied; validate failed: " + (check.stderr or check.stdout)[:300]
+    subprocess.run(["omarchy-shell", "shell", "rescanPlugins"], capture_output=True, text=True, env=env)
+    enable = subprocess.run(
+        ["omarchy-plugin-enable", PLUGIN_ID, "--section", "right"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if enable.returncode:
+        return "copied; enable later: " + (enable.stderr or enable.stdout)[:300]
+    return (enable.stdout or "enabled").strip()
+
+
 def latest_backup(root: Path) -> Path:
     backups = layout(root)["backups"]
     candidates = sorted(backups.glob("install-*"), key=lambda p: p.name)
@@ -278,9 +312,10 @@ def latest_backup(root: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=str(Path.home()), help="Install home. Use a temp dir for tests.")
-    parser.add_argument("--source", help="Recovered source packet (bin/ + provenance.json).")
-    parser.add_argument("--web", help="Browser-receiver shell HTML from the public tree.")
-    parser.add_argument("--icon", help="Optional PNG/SVG icon.")
+    parser.add_argument("--source", help="Source tree. Default: this repository.")
+    parser.add_argument("--web", help="Browser-receiver shell HTML. Default: web/index.html in this repository.")
+    parser.add_argument("--icon", help="Optional PNG/SVG icon. Default: assets/omarchy-warp-concept.png.")
+    parser.add_argument("--plugin", action="store_true", help="Also install the optional ⚡ bar widget.")
     parser.add_argument("--apply", action="store_true", help="Write files. Default is preview only.")
     parser.add_argument("--rollback", action="store_true", help="Restore the latest install snapshot.")
     args = parser.parse_args()
@@ -290,17 +325,18 @@ def main() -> None:
         rollback(backup)
         print(json.dumps({"rolled_back": str(backup)}, indent=2))
         return
-    if not args.source:
-        raise SystemExit("--source is required unless --rollback")
-    source = Path(args.source).expanduser().resolve()
-    web = Path(args.web).expanduser().resolve() if args.web else None
-    icon = Path(args.icon).expanduser().resolve() if args.icon else None
-    spec = plan(root, source, web, icon)
+    source = Path(args.source).expanduser().resolve() if args.source else REPO
+    web = Path(args.web).expanduser().resolve() if args.web else (REPO / "web/index.html")
+    icon_path = Path(args.icon).expanduser().resolve() if args.icon else (REPO / "assets/omarchy-warp-concept.png")
+    icon = icon_path if icon_path.is_file() else None
+    spec = plan(root, source, web if web.is_file() else None, icon, plugin=args.plugin)
     if not args.apply:
         print(json.dumps(spec, indent=2))
         return
     result = apply_plan(spec)
     spec.update(result)
+    if args.plugin and root == Path.home():
+        spec["plugin_enable"] = try_enable_plugin()
     print(json.dumps(spec, indent=2))
 
 

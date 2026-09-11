@@ -1,0 +1,40 @@
+{
+  "status": "early-beta public snapshot",
+  "files": [
+    {
+      "path": "bin/warp-dashboard",
+      "sha256": "206b8f169e5ab74316e0aef4f287e6131ca557c66a9d3edfb871f779b0afb57c",
+      "bytes": 15985
+    },
+    {
+      "path": "bin/warp-control",
+      "sha256": "2a1ae879378d4c55af8a5a35b74bb7a978b826c1cee89af011b56123a9095994",
+      "bytes": 23652
+    },
+    {
+      "path": "bin/omarchy-warp",
+      "sha256": "bb7bee3ee4cc057338a316ee7206e99f89c629975d2d99788d3e0999973a9d82",
+      "bytes": 8387
+    },
+    {
+      "path": "bin/omarchy-warp-workspace",
+      "sha256": "e4927fc6da85ae82d7258844f9d7791f3d1847e2bb7f6e6970aeed303ed5dbb1",
+      "bytes": 466
+    },
+    {
+      "path": "config/hosts.example.json",
+      "sha256": "b5afcc4febafd783e02f068fd16366c79998b63863cb305489bdf76a54c99d4c",
+      "bytes": 447
+    },
+    {
+      "path": "omarchy-plugin/BarWidget.qml",
+      "sha256": "e5c4160ba1d112941ebbece1159700a01fe677d8a6379f927d5918f0d1ab2bc0",
+      "bytes": 1144
+    },
+    {
+      "path": "omarchy-plugin/manifest.json",
+      "sha256": "186bbe04388c76c7b56ca039a6ef0ac792e86e55f5a5da58d6e42f41797aed63",
+      "bytes": 553
+    }
+  ]
+}

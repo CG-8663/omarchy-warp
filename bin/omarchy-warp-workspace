@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Select a tile on the focused monitor. Physical laptop tiles remain 1–10;
+# Warp-owned HEADLESS outputs receive their own independent 11–20 bank.
+set -euo pipefail
+
+tile="${1:-}"
+[[ "$tile" =~ ^([1-9]|10)$ ]] || exit 2
+focused="$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name' | head -n 1)"
+if [[ "$focused" == HEADLESS-* ]]; then
+  tile=$((tile + 10))
+fi
+exec hyprctl eval "hl.dispatch(hl.dsp.focus({ workspace = '$tile' }))"

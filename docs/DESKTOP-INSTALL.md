@@ -2,88 +2,71 @@
 
 **Early beta. Public, but not recommended to use.**
 
-This document records the first per-user desktop install that was exercised on one Omarchy laptop. It is published so the work is visible. It is not a supported product install, not a security review, and not permission to run a live extended display.
+This document records the first per-user desktop install. It is not a supported product install, not a security review, and not permission to run a live extended display.
 
 Do not treat a green unit test, a GTK window, or a bar icon as a working remote desktop.
 
-## What is in this repository
+## Easy install
+
+On an Omarchy Linux laptop, as the desktop user:
+
+```bash
+git clone git@github.com:CG-8663/omarchy-warp.git
+cd omarchy-warp
+./install.sh
+```
+
+Optional ⚡ bar widget:
+
+```bash
+./install.sh --plugin
+```
+
+Print the plan without writing files:
+
+```bash
+./install.sh --preview
+```
+
+No `sudo`. No package manager. Rollback with `python3 tools/install.py --rollback`.
+
+## What the installer writes
 
 | Path | What it is |
 |---|---|
-| `tools/preflight.py` | Read-only dependency report. Does not start Warp, bind ports, or run recovered binaries. |
-| `tools/install.py` | Per-user preview/apply/rollback for native Omarchy *source* launchers. Preview is the default. |
-| `omarchy-plugin/` | Optional ⚡ bar widget. Not installed by `install.py`. |
-| `web/index.html` | Static browser-receiver shell. No VNC, no live session. |
-| Recovered `warp-dashboard` / `warp-control` / `omarchy-warp` binaries | **Not in this tree.** |
+| `~/.local/share/omarchy-warp/0.1.0-beta/` | Versioned dashboard, control, and workspace helpers |
+| `~/.local/bin/warp-dashboard` | Launcher (and `warp-control`, `omarchy-warp`, `omarchy-warp-workspace`) |
+| `~/.local/share/applications/io.chronara.OmarchyWarp.desktop` | Desktop entry |
+| `~/.config/omarchy-warp/hosts.json` | Empty pairing file if none exists |
+| `~/.config/omarchy/plugins/io.chronara.omarchy-warp/` | Only with `--plugin` |
 
-`install.py` still needs a private source packet that contains those binaries and `provenance.json`. That packet is review input, not a public download.
-
-## What this first install does
-
-On an Omarchy Linux laptop, as the desktop user, with no `sudo` and no package-manager changes:
-
-1. Report missing commands (`python3 tools/preflight.py`).
-2. Preview the file plan against a disposable home.
-3. Apply into `~/.local/share/omarchy-warp/<version>`, with launchers in `~/.local/bin` and a `.desktop` file.
-4. Optionally enable the ⚡ bar widget through Omarchy plugin IPC (no shell-killing deploy script).
-
-It does **not**:
+## What it does not do
 
 - install the native macOS receiver, resource agent, or broker
 - copy another account's `hosts.json` or SSH keys
 - start wayvnc, websockify, or a display session
-- run `scripts/deploy-dashboard-laptop.sh` (that helper restarts the Omarchy shell)
+- run `pacman` or restart the Omarchy shell
+- use the recovered `deploy-dashboard-laptop.sh` helper (that script kills Quickshell)
 
-Starting a display still follows the recovered SSH-receiver path. That path is out of first-release scope. The required remote end is a browser on macOS, Windows or Linux, which is not implemented here yet.
+Starting a display still follows the old SSH-receiver path. That path is out of first-release scope. The required remote end is a browser on macOS, Windows or Linux, which is not implemented here yet.
 
 ## Checks
-
-From the repository root:
 
 ```bash
 python3 -m unittest tools.test_preflight tools.test_install web.test_index -v
 python3 tools/preflight.py --root "$HOME"
-python3 tools/install.py --source /path/to/private-source-packet --web web/index.html --icon assets/omarchy-warp-concept.png --root /tmp/warp-home
+./install.sh --preview --root /tmp/warp-home
 ```
 
-`ready_for_install_preview` means the listed commands exist. It is not permission to install.
-
-Apply only after a disposable-home run has succeeded:
-
-```bash
-python3 tools/install.py --source /path/to/private-source-packet --web web/index.html --icon assets/omarchy-warp-concept.png --root "$HOME"
-python3 tools/install.py --source /path/to/private-source-packet --web web/index.html --icon assets/omarchy-warp-concept.png --root "$HOME" --apply
-```
-
-Rollback the last snapshot with `python3 tools/install.py --root "$HOME" --rollback`.
-
-## Optional ⚡ bar widget
-
-The lightning bolt is an Omarchy bar widget, not a file on the wallpaper. Enable it only after the standalone dashboard binary is on `PATH` (`~/.local/bin/warp-dashboard`).
-
-```bash
-export OMARCHY_PATH=/usr/share/omarchy
-install -d ~/.config/omarchy/plugins/io.chronara.omarchy-warp
-install -m 644 omarchy-plugin/manifest.json omarchy-plugin/BarWidget.qml \
-  ~/.config/omarchy/plugins/io.chronara.omarchy-warp/
-omarchy-plugin-validate ~/.config/omarchy/plugins/io.chronara.omarchy-warp
-omarchy-shell shell rescanPlugins
-omarchy-plugin-enable io.chronara.omarchy-warp --section right
-```
-
-This uses the running shell's plugin IPC. Do not copy QML into the plugin directory by running the recovered `deploy-dashboard-laptop.sh`; that script kills Quickshell.
-
-Clicking ⚡ toggles `warp-dashboard`. Pairing a computer or starting a display is still unfinished.
+`ready_for_install_preview` means the listed commands exist. It is not a working remote-desktop session.
 
 ## Honest status of the Super Kevin trial
 
 Observed on one Omarchy laptop:
 
-- Preflight commands present (including `wayvnc`).
-- Disposable-home install, conflict refusal, and rollback unit tests passed.
-- Live apply wrote versioned launchers and `io.chronara.OmarchyWarp.desktop`.
-- GTK dashboard opened. Hosts list was empty (placeholder example hosts were not kept as paired machines).
-- ⚡ appeared on the top-right bar after `omarchy-plugin-enable`.
+- `./install.sh` path: versioned launchers, desktop entry, empty hosts file.
+- GTK dashboard opened.
+- ⚡ appeared on the top-right bar after `--plugin` / `omarchy-plugin-enable`.
 - Companion browser and Super Kevin avatar processes were not restarted for that plugin enable.
 
 Not observed, and not claimed:
@@ -91,6 +74,6 @@ Not observed, and not claimed:
 - a working browser-only receiver on macOS, Windows or Linux
 - a reviewed websockify environment
 - three distinct successful live display workflows
-- security review of the recovered control path
+- security review of the control path
 
 If you are reading this on GitHub: look, comment, or wait. Do not run it on a machine you care about.

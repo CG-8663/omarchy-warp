@@ -8,9 +8,21 @@
 >
 > This is an early-beta snapshot so people can follow the work. It is not a
 > supported install, not a security-reviewed release, and not a daily driver.
-> The recovered Linux control binaries are not in this tree. Starting a live
-> extended display is unfinished. Look, comment, or wait. Do not run this on a
-> machine you care about. See [docs/DESKTOP-INSTALL.md](docs/DESKTOP-INSTALL.md).
+> Starting a live extended display is unfinished. Look, comment, or wait. Do
+> not run this on a machine you care about. See
+> [docs/DESKTOP-INSTALL.md](docs/DESKTOP-INSTALL.md).
+
+## Install (Omarchy Linux, this user only)
+
+```bash
+git clone git@github.com:CG-8663/omarchy-warp.git
+cd omarchy-warp
+./install.sh
+```
+
+That writes launchers into `~/.local/bin` and an **Omarchy Warp** desktop entry. Add `--plugin` for the ⚡ bar widget. Add `--preview` to print the plan without writing. No `sudo`, no pacman.
+
+`./install.sh` does not pair a computer, start wayvnc, or open a remote display.
 
 Omarchy Warp explores a simple idea: use a trusted browser on another machine as extra desktop space for an Omarchy laptop.
 
@@ -110,24 +122,23 @@ The near-term plan is to stabilise the LAN experience before expanding scope.
 
 ## First published code
 
-The recovered prototype binaries are **not** in this tree. What is here now:
-
-- `tools/preflight.py` — read-only Omarchy source dependency report. It does not start Warp, bind ports, or run recovered binaries.
-- `tools/install.py` — per-user preview/apply/rollback for native source launchers. Preview is the default.
-- `omarchy-plugin/` — optional ⚡ bar widget. Not installed by `install.py`.
+- `install.sh` — one-command per-user install for an Omarchy laptop.
+- `bin/warp-dashboard`, `bin/warp-control`, `bin/omarchy-warp`, `bin/omarchy-warp-workspace` — source-side desktop tool. Early beta.
+- `omarchy-plugin/` — optional ⚡ bar widget (`./install.sh --plugin`).
 - `web/index.html` — static browser-receiver shell. It does not connect to VNC and does not claim a live session.
 - `docs/RELEASE-PROPOSAL.md` — first-release requirements: browser-only receiver on macOS, Windows and Linux.
-- `docs/DESKTOP-INSTALL.md` — how the first desktop-tool install was exercised, and why it is not recommended.
+- `docs/DESKTOP-INSTALL.md` — what the installer does and does not do.
+
+The native macOS receiver, resource agent, and broker are not in this tree.
 
 Run the checks:
 
 ```bash
 python3 -m unittest tools.test_preflight tools.test_install web.test_index -v
-python3 tools/preflight.py --root /tmp/warp-home
-python3 tools/install.py --source /path/to/private-source-packet --web web/index.html --root /tmp/warp-home
+./install.sh --preview --root /tmp/warp-home
 ```
 
-`ready_for_install_preview` is a command listing, not permission to install. `tools/install.py` previews by default, refuses unknown files, snapshots rollback, and does not copy another account's pairing records, install the native receiver/agent/plugin, restart the Omarchy shell, or run a package manager. Native receiver, SSH launch into a Mac, and unauthenticated VNC are out of first-release scope.
+`ready_for_install_preview` is a command listing, not permission to start a display. Native receiver, SSH launch into a Mac, and unauthenticated VNC are out of first-release scope.
 
 ## Feedback
 

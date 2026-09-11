@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# LAN-only Omarchy Warp screen manager. It controls only Warp-owned Hyprland outputs.
+set -euo pipefail
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-warp"
+state_file="$state_dir/outputs.json"
+selection_file="$state_dir/selected-session.json"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-warp"
+hosts_file="$config_dir/hosts.json"
+known_hosts_file="$config_dir/known_hosts"
+runtime_dir="/run/user/$(id -u)"
+
+die() { printf 'omarchy-warp: %s\n' "$*" >&2; exit 1; }
+
+signature() {
+  find "$runtime_dir/hypr" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | head -1
+}
+
+hypr() {
+  local sig
+  sig="$(signature)"
+  [ -n "$sig" ] || die "no active Hyprland session for $(id -un)"
+  XDG_RUNTIME_DIR="$runtime_dir" HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl "$@"
+}
+
+outputs_json() { hypr monitors -j; }
+
+ensure_state() {
+  mkdir -p "$state_dir"
+  [ -f "$state_file" ] || printf '{"outputs":{}}\n' > "$state_file"
+  chmod 700 "$state_dir"
+  chmod 600 "$state_file"
+}
+
+status() {
+  ensure_state
+  local monitors
+  monitors="$(outputs_json)"
+  python3 - "$state_file" "$monitors" <<'PY'
+import json, sys
+state = json.load(open(sys.argv[1]))
+monitors = json.loads(sys.argv[2])
+by_name = {m["name"]: m for m in monitors}
+screens = []
+for name, data in state.get("outputs", {}).items():
+    m = by_name.get(name)
+    screens.append({
+        "id": name,
+        "label": data["label"],
+        "resolution": data["resolution"],
+        "online": m is not None,
+    })
+print(json.dumps({"machines": [{"id": "local", "name": "This Omarchy laptop", "online": True,
+                                 "screens": screens}]}, indent=2))
+PY
+}
+
+created_output=""
+
+add_screen() {
+  local label="${1:-Extra screen}" resolution="${2:-1920x1080}"
+  [[ "$resolution" =~ ^[0-9]{3,5}x[0-9]{3,5}$ ]] || die "resolution must look like 1920x1080"
+  ensure_state
+  local before after name
+  before="$(outputs_json)"
+  hypr output create headless >/dev/null
+  after="$(outputs_json)"
+  name="$(python3 - "$before" "$after" <<'PY'
+import json, sys
+old = {m["name"] for m in json.loads(sys.argv[1])}
+new = [m["name"] for m in json.loads(sys.argv[2]) if m["name"] not in old]
+print(new[0] if len(new) == 1 else "")
+PY
+)"
+  [ -n "$name" ] || die "Hyprland did not report a single new output"
+  hypr keyword monitor "$name,$resolution@60,auto,1" >/dev/null
+  python3 - "$state_file" "$name" "$label" "$resolution" <<'PY'
+import json, sys
+path, name, label, resolution = sys.argv[1:]
+state = json.load(open(path))
+state.setdefault("outputs", {})[name] = {"label": label, "resolution": resolution}
+with open(path, "w") as f: json.dump(state, f, indent=2); f.write("\n")
+PY
+  printf 'Created %s (%s, %s).\n' "$label" "$name" "$resolution"
+  created_output="$name"
+}
+
+remove_screen() {
+  local name="${1:?usage: omarchy-warp remove HEADLESS-N}"
+  ensure_state
+  python3 - "$state_file" "$name" <<'PY'
+import json, sys
+if sys.argv[2] not in json.load(open(sys.argv[1])).get("outputs", {}): raise SystemExit(1)
+PY
+  hypr output remove "$name" >/dev/null
+  python3 - "$state_file" "$name" <<'PY'
+import json, sys
+path, name = sys.argv[1:]
+state = json.load(open(path)); state.get("outputs", {}).pop(name, None)
+with open(path, "w") as f: json.dump(state, f, indent=2); f.write("\n")
+PY
+  printf 'Removed %s.\n' "$name"
+}
+
+select_session() {
+  local mode="${1:?usage: omarchy-warp select mirror|extended OUTPUT [CLIENT]}" output="${2:?usage: omarchy-warp select mirror|extended OUTPUT [CLIENT]}" client="${3:-}"
+  [[ "$mode" =~ ^(mirror|extended)$ ]] || die 'mode must be mirror or extended'
+  ensure_state
+  local monitors
+  monitors="$(outputs_json)"
+  [[ -z "$client" || "$client" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]] || die 'invalid client id'
+  python3 - "$state_file" "$selection_file" "$mode" "$output" "$client" "$monitors" <<'PY'
+import json, os, sys
+state_path, selected_path, mode, output, client, monitors_raw = sys.argv[1:]
+state = json.load(open(state_path)); monitors = {m['name'] for m in json.loads(monitors_raw)}
+if output not in monitors: raise SystemExit('selected output is not online')
+owned = output in state.get('outputs', {})
+if mode == 'extended' and not owned: raise SystemExit('extended mode requires a Warp-created output')
+if mode == 'mirror' and owned: raise SystemExit('mirror mode requires a physical output')
+with open(selected_path, 'w') as f:
+    json.dump({'mode': mode, 'output': output, 'client': client}, f, indent=2); f.write('\n')
+os.chmod(selected_path, 0o600)
+PY
+  printf 'Selected %s session on %s for %s.\n' "$mode" "$output" "${client:-a paired client}"
+}
+
+create_extended() {
+  local client="${1:?usage: omarchy-warp create-extended CLIENT [RESOLUTION]}" resolution="${2:-1920x1080}"
+  add_screen "Warp extended desktop" "$resolution"
+  select_session extended "$created_output" "$client"
+  launch_session extended "$client"
+}
+
+launch_session() {
+  local mode="${1:?usage: omarchy-warp launch mirror|extended CLIENT}" client="${2:?usage: omarchy-warp launch mirror|extended CLIENT}"
+  [[ "$mode" =~ ^(mirror|extended)$ ]] || die 'mode must be mirror or extended'
+  [ -r "$hosts_file" ] || die 'no paired hosts; choose Pair a computer first'
+  local user address
+  user="$(jq -r --arg id "$client" '.hosts[] | select(.id==$id) | .sshUser' "$hosts_file" | head -1)"
+  address="$(jq -r --arg id "$client" '.hosts[] | select(.id==$id) | .transports | sort_by(.priority)[] | .address' "$hosts_file" | head -1)"
+  [ -n "$user" ] && [ "$user" != null ] && [ -n "$address" ] && [ "$address" != null ] || die "unknown paired host: $client"
+  [ -r "$known_hosts_file" ] || die 'paired host keys are missing; pair the machine again'
+  ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts_file" "$user@$address" "\"\$HOME/.local/bin/omarchy-warp-receiver\" $mode" || die "could not launch $client over its preferred route"
+  printf 'Launched %s session on %s via %s.\n' "$mode" "$client" "$address"
+}
+
+pair_host() {
+  local name user wired wifi tail client key_tmp
+  printf 'Display name: '; read -r name
+  printf 'SSH username: '; read -r user
+  printf 'Wired LAN IP (blank to skip): '; read -r wired
+  printf 'Wi-Fi LAN IP (blank to skip): '; read -r wifi
+  printf 'Tailscale IP (blank to skip): '; read -r tail
+  client="$(printf '%s' "$name" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-')"
+  [ -n "$client" ] && [ -n "$user" ] || die 'name and SSH username are required'
+  mkdir -p "$config_dir"; chmod 700 "$config_dir"
+  key_tmp="$config_dir/known_hosts.new"; : > "$key_tmp"
+  for address in "$wired" "$wifi" "$tail"; do [ -n "$address" ] && ssh-keyscan -T 8 -t ed25519 "$address" 2>/dev/null >> "$key_tmp" || true; done
+  [ -s "$key_tmp" ] || die 'could not obtain an SSH host key from any address'
+  printf 'Host key fingerprint(s):\n'; ssh-keygen -lf "$key_tmp"
+  printf 'Trust these keys and pair this machine? [y/N] '; read -r answer
+  [[ "$answer" =~ ^[Yy]$ ]] || { rm -f "$key_tmp"; die 'pairing cancelled'; }
+  python3 - "$hosts_file" "$client" "$name" "$user" "$wired" "$wifi" "$tail" <<'PY'
+import json, os, sys
+path, ident, name, user, wired, wifi, tail = sys.argv[1:]
+items = [("ethernet-lan", wired), ("wifi-lan", wifi), ("tailscale", tail)]
+hosts = json.load(open(path)).get("hosts", []) if os.path.exists(path) else []
+hosts = [h for h in hosts if h.get("id") != ident]
+hosts.append({"id": ident, "name": name, "sshUser": user,
+              "transports": [{"kind": k, "address": a, "priority": i + 1} for i, (k, a) in enumerate(items) if a],
+              "capabilities": ["browser-viewer", "speaker", "microphone"]})
+with open(path, "w") as f: json.dump({"version": 1, "hosts": hosts}, f, indent=2); f.write("\n")
+os.chmod(path, 0o600)
+PY
+  chmod 600 "$key_tmp"; mv "$key_tmp" "$known_hosts_file"
+  printf 'Paired %s.\n' "$name"
+}
+
+case "${1:-status}" in
+  status) status ;;
+  add) add_screen "${2:-Extra screen}" "${3:-1920x1080}" ;;
+  remove) remove_screen "${2:-}" ;;
+  select) select_session "${2:-}" "${3:-}" "${4:-}" ;;
+  create-extended) create_extended "${2:-}" "${3:-1920x1080}" ;;
+  launch) launch_session "${2:-}" "${3:-}" ;;
+  pair) pair_host ;;
+  *) die "usage: omarchy-warp {status|add [label] [resolution]|remove HEADLESS-N|select mirror|extended OUTPUT [CLIENT]|create-extended CLIENT [RESOLUTION]|launch mirror|extended CLIENT|pair}" ;;
+esac
