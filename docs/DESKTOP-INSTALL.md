@@ -1,6 +1,6 @@
 # Omarchy Warp desktop tool: beginning of install
 
-**Public pre-release. Not recommended to use.**
+**Early beta. Public, but not recommended to use.**
 
 This document records the first per-user desktop install that was exercised on one Omarchy laptop. It is published so the work is visible. It is not a supported product install, not a security review, and not permission to run a live extended display.
 

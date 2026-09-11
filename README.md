@@ -4,13 +4,13 @@
 
 # Omarchy Warp
 
-> **Public pre-release. Not recommended to use.**
+> **Early beta. Public, but not recommended to use.**
 >
-> This repository is public so people can follow the work. It is not a supported
-> install, not a security-reviewed release, and not a daily driver. The recovered
-> Linux control binaries are not in this tree. Starting a live extended display
-> is unfinished. Look, comment, or wait. Do not run this on a machine you care
-> about. See [docs/DESKTOP-INSTALL.md](docs/DESKTOP-INSTALL.md).
+> This is an early-beta snapshot so people can follow the work. It is not a
+> supported install, not a security-reviewed release, and not a daily driver.
+> The recovered Linux control binaries are not in this tree. Starting a live
+> extended display is unfinished. Look, comment, or wait. Do not run this on a
+> machine you care about. See [docs/DESKTOP-INSTALL.md](docs/DESKTOP-INSTALL.md).
 
 Omarchy Warp explores a simple idea: use a trusted browser on another machine as extra desktop space for an Omarchy laptop.
 
