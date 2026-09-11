@@ -1,0 +1,418 @@
+#!/usr/bin/env python3
+"""User-scoped private pairing and display control; no network listener."""
+import argparse
+import base64
+import concurrent.futures
+import fcntl
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import socket
+import subprocess
+import tempfile
+import time
+import uuid
+
+CONFIG = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'omarchy-warp'
+STATE = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'omarchy-warp'
+HOSTS, KEYS = CONFIG / 'hosts.json', CONFIG / 'known_hosts'
+MANAGER = str(Path(__file__).with_name('omarchy-warp'))
+ROUTES = ('ethernet-lan', 'wifi-lan', 'tailscale')
+
+class WarpError(RuntimeError): pass
+
+def run(args, timeout=20, check=True, env=None):
+    try:
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired as exc:
+        raise WarpError(f'Timed out: {Path(args[0]).name}') from exc
+    except OSError as exc: raise WarpError(str(exc)) from exc
+    if check and p.returncode:
+        raise WarpError((p.stderr or p.stdout or f'{Path(args[0]).name} failed').strip()[-1800:])
+    return p
+
+def read_json(path, default):
+    try: return json.loads(path.read_text())
+    except FileNotFoundError: return default
+
+def private_dir(path):
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.chmod(0o700)
+
+def write_private(path, text):
+    private_dir(path.parent)
+    fd, temp = tempfile.mkstemp(prefix='.warp-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(text)
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp): os.unlink(temp)
+
+def write_json(path, data): write_private(path, json.dumps(data, indent=2) + '\n')
+def hosts(): return read_json(HOSTS, {'hosts': []}).get('hosts', [])
+
+def clean_address(address):
+    address = address.strip()
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.:%_-]{0,252}', address):
+        raise WarpError('Use an IP address or local hostname, without spaces or a URL.')
+    try: addresses = socket.getaddrinfo(address, 22, type=socket.SOCK_STREAM)
+    except OSError as exc: raise WarpError(f'Cannot resolve {address}: {exc}') from exc
+    for record in addresses:
+        ip = ipaddress.ip_address(record[4][0].split('%')[0])
+        if not (ip.is_private or ip in ipaddress.ip_network('100.64.0.0/10')) or ip.is_loopback:
+            raise WarpError('Pairing is restricted to LAN or Tailscale addresses.')
+    return address
+
+def ssh(host, address, command, keys=KEYS, timeout=15):
+    return run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=4', '-o', 'ConnectionAttempts=1',
+                '-o', 'StrictHostKeyChecking=yes', '-o', f'UserKnownHostsFile={keys}',
+                f"{host['sshUser']}@{address}", command], timeout=timeout)
+
+def checked_host(ident):
+    found = next((h for h in hosts() if h.get('id') == ident), None)
+    if not found: raise WarpError('Choose a paired computer first.')
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]{0,63}', found.get('sshUser', '')):
+        raise WarpError('The paired SSH username is invalid; pair this host again.')
+    if not KEYS.is_file(): raise WarpError('The pinned host keys are missing; pair this host again.')
+    return found
+
+def routes(host):
+    return sorted(host.get('transports', []), key=lambda r: ROUTES.index(r['kind']) if r.get('kind') in ROUTES else 99)
+
+PROBE = 'uname -s; if test -x "$HOME/.local/bin/omarchy-warp-receiver"; then printf "WARP_RECEIVER_READY\\n"; fi'
+
+def probe(ident):
+    host, failures = checked_host(ident), []
+    for route in routes(host):
+        address = clean_address(route['address'])
+        try:
+            result = ssh(host, address, PROBE)
+            return {'host': host, 'route': route, 'receiverReady': 'WARP_RECEIVER_READY' in result.stdout,
+                    'os': result.stdout.splitlines()[0] if result.stdout else 'unknown'}
+        except WarpError as exc: failures.append(f'{address}: {exc}')
+    raise WarpError('Cannot reach this computer.\n' + '\n'.join(failures))
+
+def pairing_preview(data):
+    name, user = data.get('name', '').strip(), data.get('sshUser', '').strip()
+    if not name or len(name) > 100 or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]{0,63}', user):
+        raise WarpError('Enter a display name and valid SSH username.')
+    transport, lines, failures = [], [], []
+    for priority, kind in enumerate(ROUTES, 1):
+        address = data.get(kind, '').strip()
+        if not address: continue
+        address = clean_address(address)
+        result = run(['ssh-keyscan', '-T', '4', '-t', 'ed25519', address], timeout=8, check=False)
+        keys = [s for s in result.stdout.splitlines() if len(s.split()) == 3 and s.split()[1] == 'ssh-ed25519']
+        if not keys:
+            failures.append(address)
+            continue
+        transport.append({'kind': kind, 'address': address, 'priority': priority})
+        lines.extend(keys)
+    if not transport: raise WarpError('No SSH host responded. Enable Remote Login / SSH and check its address.')
+    unique = {' '.join(line.split()[1:]) for line in lines}
+    if len(unique) != 1:
+        raise WarpError('These addresses return different host keys. They may be different computers; pair them separately.')
+    fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(next(iter(unique)).split()[1])).digest()).decode().rstrip('=')
+    return {'name': name, 'sshUser': user, 'transports': transport, 'keyLines': sorted(set(lines)),
+            'fingerprint': fingerprint, 'unreachable': failures}
+
+def pair_confirm(preview):
+    data = {'name': preview['name'], 'sshUser': preview['sshUser']}
+    data.update({r['kind']: r['address'] for r in preview['transports']})
+    fresh = pairing_preview(data)
+    if fresh['fingerprint'] != preview['fingerprint'] or fresh['transports'] != preview['transports']:
+        raise WarpError('The host or its key changed during pairing. Scan and verify again.')
+    private_dir(CONFIG)
+    old_keys = KEYS.read_text() if KEYS.exists() else ''
+    key_text = '\n'.join(dict.fromkeys(old_keys.splitlines() + fresh['keyLines'])) + '\n'
+    fd, temp = tempfile.mkstemp(prefix='.pair-', dir=CONFIG)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(key_text)
+        reachable = None
+        for route in fresh['transports']:
+            try:
+                check = ssh(fresh, route['address'], PROBE, keys=temp)
+                reachable = {'receiverReady': 'WARP_RECEIVER_READY' in check.stdout,
+                             'os': check.stdout.splitlines()[0] if check.stdout else 'unknown'}
+                break
+            except WarpError: continue
+        if not reachable:
+            raise WarpError("Host verified, but authenticated SSH failed. Authorize this laptop's SSH key on that computer first.")
+        all_hosts = hosts()
+        existing = next((h for h in all_hosts if h.get('fingerprint') == fresh['fingerprint'] or
+                         any(r.get('address') == n['address'] for r in h.get('transports', []) for n in fresh['transports'])), None)
+        ident = existing['id'] if existing else 'host-' + uuid.uuid4().hex[:12]
+        host = {'id': ident, 'name': fresh['name'], 'sshUser': fresh['sshUser'], 'transports': fresh['transports'],
+                'fingerprint': fresh['fingerprint'], **reachable}
+        all_hosts = [h for h in all_hosts if h['id'] != ident] + [host]
+        # Keep every other paired host's keys when adding a computer.
+        write_private(KEYS, key_text)
+        write_json(HOSTS, {'version': 2, 'hosts': all_hosts})
+        return host
+    finally:
+        if os.path.exists(temp): os.unlink(temp)
+
+def discover():
+    candidates = {}
+    try: result = run(['avahi-browse', '-rtp', '_ssh._tcp'], timeout=7, check=False)
+    except WarpError: result = None
+    for line in result.stdout.splitlines() if result else []:
+        p = line.split(';')
+        if len(p) >= 9 and p[0] == '=' and p[2] == 'IPv4':
+            candidates[p[7]] = {'address': p[7], 'name': p[6], 'kind': 'lan'}
+    result = run(['ip', '-j', 'neigh'], check=False)
+    try: neighbours = json.loads(result.stdout or '[]')
+    except ValueError: neighbours = []
+    def scan_one(item):
+        address = item.get('dst', '')
+        if not address or item.get('dev') in ('tailscale0', 'docker0', 'lo'): return None
+        try:
+            clean_address(address)
+            with socket.create_connection((address, 22), timeout=0.5):
+                return {'address': address, 'name': address, 'kind': 'lan'}
+        except (OSError, WarpError): return None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+        for found in pool.map(scan_one, neighbours[:128]):
+            if found: candidates.setdefault(found['address'], found)
+    try: result = run(['tailscale', 'status', '--json'], check=False)
+    except WarpError: result = None
+    if result and result.returncode == 0:
+        try:
+            for peer in json.loads(result.stdout).get('Peer', {}).values():
+                addresses = peer.get('TailscaleIPs', [])
+                if peer.get('Online') and addresses:
+                    candidates.setdefault(addresses[0], {'address': addresses[0], 'name': peer.get('HostName', addresses[0]), 'kind': 'tailscale'})
+        except ValueError: pass
+    return sorted(candidates.values(), key=lambda c: (c['kind'] == 'tailscale', c['name']))
+
+def desktop_env():
+    env, runtime = os.environ.copy(), Path(f'/run/user/{os.getuid()}')
+    env['XDG_RUNTIME_DIR'] = str(runtime)
+    instances = sorted((runtime / 'hypr').glob('*'), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not instances: raise WarpError('No running Hyprland desktop was found for this user.')
+    env['HYPRLAND_INSTANCE_SIGNATURE'] = instances[0].name
+    displays = [p for p in runtime.glob('wayland-*') if not p.name.endswith('.lock') and p.is_socket()]
+    if not displays: raise WarpError('No Wayland display socket was found.')
+    env['WAYLAND_DISPLAY'] = sorted(displays)[0].name
+    return env
+
+def screens():
+    monitors = json.loads(run(['hyprctl', '-j', 'monitors'], env=desktop_env()).stdout)
+    owned = read_json(STATE / 'outputs.json', {'outputs': {}}).get('outputs', {})
+    return [{'id': m['name'], 'resolution': f"{m['width']}x{m['height']}", 'extended': m['name'] in owned,
+             'label': owned.get(m['name'], {}).get('label', m['name']),
+             'x': m['x'], 'y': m['y'], 'width': m['width'], 'height': m['height'],
+             'scale': m['scale'], 'refreshRate': m['refreshRate']} for m in monitors]
+
+def arrange(data):
+    output, position = data.get('output', ''), data.get('position', '')
+    if position not in ('left', 'right', 'above', 'below'):
+        raise WarpError('Choose left, right, above, or below.')
+    current = {s['id']: s for s in screens()}
+    target = current.get(output)
+    if not target or not target['extended']:
+        raise WarpError('Choose an active Warp extended monitor to arrange.')
+    primary = next((s for s in current.values() if not s['extended']), None)
+    if not primary: raise WarpError('No physical laptop monitor is active.')
+    pw, ph = round(primary['width'] / primary['scale']), round(primary['height'] / primary['scale'])
+    tw, th = round(target['width'] / target['scale']), round(target['height'] / target['scale'])
+    x, y = {'left': (-tw, 0), 'right': (pw, 0), 'above': (0, -th), 'below': (0, ph)}[position]
+    def spec(monitor, px, py):
+        mode = f"{monitor['width']}x{monitor['height']}@{round(monitor['refreshRate'])}"
+        return f'hl.monitor({{ output = {json.dumps(monitor["id"])}, mode = {json.dumps(mode)}, position = {json.dumps(f"{px}x{py}")}, scale = {monitor["scale"]} }})'
+    # Pin the physical display and the selected Warp output together. Updating
+    # only one lets Hyprland auto-reflow the other monitor.
+    run(['hyprctl', 'eval', spec(primary, 0, 0) + '; ' + spec(target, x, y)], env=desktop_env())
+    layouts = read_json(STATE / 'layouts.json', {})
+    layouts[output] = {'position': position, 'x': x, 'y': y, 'updatedAt': int(time.time())}
+    write_json(STATE / 'layouts.json', layouts)
+    # Outputs can be recreated between sessions (HEADLESS-1, HEADLESS-2,
+    # ...). Keep the user's chosen placement with the paired destination too.
+    destinations = read_json(STATE / 'destinations.json', {})
+    changed = False
+    for destination in destinations.values():
+        if destination.get('output') == output:
+            destination['position'] = position
+            changed = True
+    if changed:
+        write_json(STATE / 'destinations.json', destinations)
+    return {'output': output, 'position': position, 'x': x, 'y': y}
+
+def source_addresses(destination):
+    candidates = []
+    for iface in json.loads(run(['ip', '-j', '-4', 'address']).stdout):
+        name = iface['ifname']
+        if 'UP' not in iface.get('flags', []) or name == 'lo' or name.startswith(('docker', 'br-', 'veth')): continue
+        rank = 2 if name == 'tailscale0' else 1 if name.startswith('wl') else 0
+        candidates.extend((rank, a['local']) for a in iface.get('addr_info', []) if a.get('scope') == 'global')
+    candidates.sort()
+    try: remote = ipaddress.ip_address(destination) in ipaddress.ip_network('100.64.0.0/10')
+    except ValueError: remote = False
+    return [a for rank, a in candidates if not remote or rank == 2]
+
+def set_stream_output(mode, output):
+    env = desktop_env()
+    vnc_port, proxy_port = (5900, 6080) if mode == 'mirror' else (5901, 6081)
+    suffix = '' if mode == 'mirror' else '-extended'
+    unit, proxy_unit = 'omarchy-warp-vnc' + suffix, 'omarchy-warp-websockify' + suffix
+    sock = env['XDG_RUNTIME_DIR'] + '/omarchy-warp' + (suffix or '-mirror') + '.sock'
+    selected = run(['wayvncctl', '-S', sock, 'output-set', output], env=env, check=False)
+    active_unit = run(['systemctl', '--user', 'show', unit, '--property=ExecStart', '--value'], check=False).stdout
+    # Upgrade an older Warp stream in-place on the next launch: it did not
+    # exit when its final browser client disconnected.
+    if selected.returncode or '"-e"' not in active_unit:
+        run(['systemctl', '--user', 'stop', unit + '.service'], check=False)
+        run(['systemctl', '--user', 'reset-failed', unit + '.service'], check=False)
+        args = ['systemd-run', '--user', '--collect', '--unit', unit, '--property=Restart=on-failure', '--property=RestartSec=2']
+        for key in ('XDG_RUNTIME_DIR', 'HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY'):
+            args += ['--setenv', f'{key}={env[key]}']
+        # A browser/tab close drops its VNC connection. WayVNC exits normally
+        # after the last client disconnects, ending the transport instead of
+        # leaving a live remote session behind.
+        run(args + ['/usr/bin/wayvnc', '-e', '-g', '-k', 'gb-mac', '-S', sock, '-o', output, f'127.0.0.1:{vnc_port}'], env=env)
+    if run(['systemctl', '--user', 'is-active', proxy_unit], check=False).returncode:
+        executable = Path.home() / '.local/share/omarchy-warp/venv/bin/websockify'
+        if not executable.is_file(): raise WarpError('The display bridge is not installed on this laptop.')
+        run(['systemctl', '--user', 'reset-failed', proxy_unit + '.service'], check=False)
+        run(['systemd-run', '--user', '--collect', '--unit', proxy_unit, '--property=Restart=on-failure', '--property=RestartSec=2',
+             str(executable), f'127.0.0.1:{proxy_port}', f'127.0.0.1:{vnc_port}'], env=env)
+    for _ in range(20):
+        try:
+            with socket.create_connection(('127.0.0.1', vnc_port), timeout=0.5) as connection:
+                if connection.recv(12).startswith(b'RFB '): return proxy_port
+        except OSError: pass
+        time.sleep(0.15)
+    raise WarpError('Display capture did not become ready. Your screen is preserved.')
+
+def output_workspace(output):
+    monitors = json.loads(run(['hyprctl', '-j', 'monitors'], env=desktop_env()).stdout)
+    monitor = next((m for m in monitors if m['name'] == output), None)
+    if not monitor:
+        raise WarpError('The selected output is no longer online.')
+    return str(monitor['activeWorkspace']['name'])
+
+def seed_extended_tiles(output):
+    """Give a Warp monitor its own workspace bank without moving laptop tiles."""
+    env = desktop_env()
+    physical = next((screen['id'] for screen in screens() if not screen['extended']), None)
+    def focus(args):
+        fields = ', '.join(f'{key} = {json.dumps(value)}' for key, value in args.items())
+        run(['hyprctl', 'eval', f'hl.dispatch(hl.dsp.focus({{ {fields} }}))'], env=env)
+    focus({'monitor': output})
+    focus({'workspace': '11'})
+    if physical:
+        focus({'monitor': physical})
+
+def open_extended_browser(output, host):
+    """Open a dedicated Chromium profile on the selected Warp workspace.
+
+    A generic Tableau browser launch follows the laptop's active physical
+    workspace. This explicit process is the remote desktop's browser, so its
+    tabs remain with the extended session and do not share normal browser data.
+    """
+    ident = host['id']
+    profile = Path.home() / '.local/share/omarchy-warp/browser-profiles' / ident
+    private_dir(profile)
+    workspace = output_workspace(output)
+    app_class = 'omarchy-warp-' + re.sub(r'[^a-zA-Z0-9_-]', '-', ident)
+    env = desktop_env()
+    # A unique app class is routed by Hyprland's config parser, avoiding the
+    # unstable dispatcher CLI in Hyprland 0.56. It never matches normal Chrome.
+    run(['hyprctl', 'keyword', 'windowrule',
+         f'workspace name:{workspace} silent, class:^({app_class})$'], env=env)
+    run(['systemd-run', '--user', '--quiet', '--collect',
+         f'--unit=omarchy-warp-browser-{ident}-{int(time.time())}',
+         '/usr/bin/chromium', '--ozone-platform=wayland',
+         f'--user-data-dir={profile}', f'--class={app_class}',
+         '--new-window', 'about:blank'], env=env)
+
+def launch(data):
+    mode, ident = data.get('mode'), data.get('host')
+    if mode not in ('mirror', 'extended'): raise WarpError('Choose Mirror or Extended desktop.')
+    for key in ('audio', 'dictation'):
+        if data.get(key, 'off') not in ('client', 'remote', 'off'): raise WarpError('Invalid resource route.')
+    available = probe(ident)  # Check receiver BEFORE creating a screen.
+    if not available['receiverReady']:
+        raise WarpError('This computer is paired but the Warp receiver is not installed. Install ~/.local/bin/omarchy-warp-receiver there first.')
+    private_dir(STATE)
+    with (STATE / 'launch.lock').open('a') as lock:
+        os.chmod(lock.name, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        output, resolution = data.get('output', ''), data.get('resolution', '1920x1080')
+        saved_destination = read_json(STATE / 'destinations.json', {}).get(ident, {})
+        saved_position = saved_destination.get('position')
+        if saved_position not in ('left', 'right', 'above', 'below'):
+            # One-time migration from output-keyed layouts written by the
+            # prototype before destinations remembered their own placement.
+            layouts = read_json(STATE / 'layouts.json', {})
+            recent = max(layouts.values(), key=lambda item: item.get('updatedAt', 0), default={})
+            saved_position = recent.get('position', 'right')
+        if mode == 'extended' and output == 'new':
+            if resolution not in ('1920x1080', '2560x1440', '3840x2160'): raise WarpError('Unsupported resolution.')
+            previous = saved_destination
+            online = {s['id']: s for s in screens()}
+            if previous.get('output') in online and previous.get('resolution') == resolution:
+                output = previous['output']
+            else:
+                before = set(online)
+                run([MANAGER, 'add', f"Warp on {available['host']['name']}", resolution])
+                added = [s['id'] for s in screens() if s['id'] not in before]
+                if len(added) != 1: raise WarpError('Could not identify the new extended screen.')
+                output = added[0]
+            # Remember allocation before attempting network/browser launch so a
+            # retry after a receiver failure reuses the same preserved screen.
+            destinations = read_json(STATE / 'destinations.json', {})
+            destinations[ident] = {'output': output, 'resolution': resolution, 'position': saved_position}
+            write_json(STATE / 'destinations.json', destinations)
+        run([MANAGER, 'select', mode, output, ident])
+        if mode == 'extended':
+            seed_extended_tiles(output)
+            arrange({'output': output, 'position': saved_position})
+        proxy_port = set_stream_output(mode, output)
+        session, route = (ident + '-' + mode)[:64], available['route']
+        failures, addresses = [], source_addresses(route['address'])
+        if not addresses: raise WarpError('No private source address is available for this route.')
+        for source in addresses:
+            args = ['--source', source, '--ssh-user', os.environ.get('USER', ''), '--mode', mode,
+                    '--remote-port', str(proxy_port), '--session', session,
+                    '--audio', data.get('audio', 'off'), '--dictation', data.get('dictation', 'off')]
+            try:
+                result = ssh(available['host'], route['address'], '"$HOME/.local/bin/omarchy-warp-receiver" ' + shlex.join(args), timeout=40)
+                break
+            except WarpError as exc: failures.append(f'{source}: {exc}')
+        else: raise WarpError('The receiver could not open this session. Your screen is preserved.\n' + '\n'.join(failures))
+        record = {'mode': mode, 'output': output, 'host': ident, 'route': route, 'sourceAddress': source,
+                  'resolution': resolution, 'transport': 'vnc-ssh', 'audioRequested': data.get('audio', 'off'),
+                  'dictationRequested': data.get('dictation', 'off'), 'clientAudioActive': False,
+                  'clientMicrophoneActive': False, 'launchedAt': int(time.time())}
+        write_json(STATE / 'last-launch.json', record)
+        if mode == 'extended':
+            destinations = read_json(STATE / 'destinations.json', {})
+            destinations[ident] = {'output': output, 'resolution': resolution, 'position': saved_position}
+            write_json(STATE / 'destinations.json', destinations)
+        return {**record, 'message': f"Opened {mode} display {output} on {available['host']['name']} via {route['kind']} ({route['address']}).",
+                'receiver': result.stdout.strip()[-1500:]}
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=['hosts', 'screens', 'arrange', 'discover', 'probe', 'pair-preview', 'pair-confirm', 'launch'])
+    parser.add_argument('payload', nargs='?', default='{}')
+    args = parser.parse_args()
+    try:
+        data = json.loads(args.payload)
+        commands = {'hosts': hosts, 'screens': screens, 'arrange': lambda: arrange(data), 'discover': discover, 'probe': lambda: probe(data['host']),
+                    'pair-preview': lambda: pairing_preview(data), 'pair-confirm': lambda: pair_confirm(data), 'launch': lambda: launch(data)}
+        print(json.dumps(commands[args.action]()))
+    except (WarpError, OSError, ValueError, KeyError) as exc:
+        print(json.dumps({'error': str(exc)}))
+        raise SystemExit(1)
+
+if __name__ == '__main__': main()

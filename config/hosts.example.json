@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "hosts": [
+    {
+      "id": "m3",
+      "name": "Mac M3",
+      "sshUser": "YOUR_MAC_USER",
+      "transports": [
+        { "kind": "ethernet-lan", "address": "WIRED_LAN_IP", "priority": 1 },
+        { "kind": "wifi-lan", "address": "WIFI_LAN_IP", "priority": 2 },
+        { "kind": "tailscale", "address": "TAILSCALE_IP", "priority": 3 }
+      ],
+      "capabilities": ["browser-viewer", "speaker", "microphone"]
+    }
+  ]
+}

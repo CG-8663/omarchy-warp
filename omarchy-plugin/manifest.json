@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "io.chronara.omarchy-warp",
+  "name": "Omarchy Warp",
+  "version": "0.1.0",
+  "author": "Chronara",
+  "license": "MIT",
+  "description": "Choose a mirror or a dedicated extended Warp desktop from the taskbar.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "BarWidget.qml"},
+  "barWidget": {
+    "displayName": "Omarchy Warp",
+    "description": "Mirror the laptop or prepare a dedicated extended Warp desktop.",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

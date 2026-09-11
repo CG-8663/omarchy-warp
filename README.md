@@ -4,7 +4,25 @@
 
 # Omarchy Warp
 
-> **Status: early prototype. Testing for a first release.**
+> **Early beta. Public, but not recommended to use.**
+>
+> This is an early-beta snapshot so people can follow the work. It is not a
+> supported install, not a security-reviewed release, and not a daily driver.
+> Starting a live extended display is unfinished. Look, comment, or wait. Do
+> not run this on a machine you care about. See
+> [docs/DESKTOP-INSTALL.md](docs/DESKTOP-INSTALL.md).
+
+## Install (Omarchy Linux, this user only)
+
+```bash
+git clone git@github.com:CG-8663/omarchy-warp.git
+cd omarchy-warp
+./install.sh
+```
+
+That writes launchers into `~/.local/bin` and an **Omarchy Warp** desktop entry. Add `--plugin` for the ⚡ bar widget. Add `--preview` to print the plan without writing. No `sudo`, no pacman.
+
+`./install.sh` does not pair a computer, start wayvnc, or open a remote display.
 
 Omarchy Warp explores a simple idea: use a trusted browser on another machine as extra desktop space for an Omarchy laptop.
 
@@ -102,16 +120,37 @@ The near-term plan is to stabilise the LAN experience before expanding scope.
 - Harden permissions and network exposure.
 - Evaluate secure remote access and additional platform support only after the local workflow is reliable.
 
-## No code published yet
+## First published code
 
-This repository is currently a project overview and testing log. It does **not** contain application code or installation instructions yet.
+- `install.sh` — one-command per-user install for an Omarchy laptop.
+- `bin/warp-dashboard`, `bin/warp-control`, `bin/omarchy-warp`, `bin/omarchy-warp-workspace` — source-side desktop tool. Early beta.
+- `omarchy-plugin/` — optional ⚡ bar widget (`./install.sh --plugin`).
+- `web/index.html` — static browser-receiver shell. It does not connect to VNC and does not claim a live session.
+- `docs/RELEASE-PROPOSAL.md` — first-release requirements: browser-only receiver on macOS, Windows and Linux.
+- `docs/DESKTOP-INSTALL.md` — what the installer does and does not do.
+- `docs/BROWSER-TEST.md` — how to try the viewer shell in Windows Edge, Chrome and Firefox.
 
-Code will be considered for publication after the first release path is tested, the security boundaries are clear, and the user experience is dependable enough for others to evaluate safely.
+The native macOS receiver, resource agent, and broker are not in this tree.
+
+Run the checks:
+
+```bash
+python3 -m unittest tools.test_preflight tools.test_install web.test_index -v
+./install.sh --preview --root /tmp/warp-home
+```
+
+`ready_for_install_preview` is a command listing, not permission to start a display. Native receiver, SSH launch into a Mac, and unauthenticated VNC are out of first-release scope.
+
+## Credits
+
+- **Chronara AI** — project home for this research snapshot.
+- **Super Kevin** — Omarchy laptop operator. Standing portrait: `assets/credits/super-kevin-standing.png`.
+- **James Tervit** — main developer. Creator and leader of Super Kevin and Chronara.
+
+The viewer shell and the Warp dashboard Credits window show the same three names. James Tervit is credited in text; Super Kevin and Chronara AI use local artwork.
+
+The title artwork uses the [Omarchy Font](https://github.com/markcuda/Omarchy-Font) by Mark Cuda. It is an MIT-licensed fan project and is not affiliated with Omarchy or 37signals.
 
 ## Feedback
 
 Questions and feedback are welcome, especially from people who work across a laptop, a desktop machine, TVs or other network-connected displays. The useful question is simple: would browser-based extended desktop space make your setup easier?
-
-## Credits
-
-The title artwork uses the [Omarchy Font](https://github.com/markcuda/Omarchy-Font) by Mark Cuda. It is an MIT-licensed fan project and is not affiliated with Omarchy or 37signals.

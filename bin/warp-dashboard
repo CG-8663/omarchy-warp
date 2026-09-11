@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""Independent GTK4 control window. No UI objects live in Quickshell."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import threading
+import gi
+gi.require_version('Gtk', '4.0')
+gi.require_version('Gdk', '4.0')
+from gi.repository import Gdk, Gio, GLib, Gtk
+
+CONTROL = str(Path(__file__).with_name('warp-control'))
+SHARE = Path(__file__).resolve().parent.parent
+CREDITS_DIR = SHARE / 'assets' / 'credits'
+CSS = b"""
+window.warp-window { background-color: #091417; }
+.warp-beta {
+  color: #39a98d;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.warp-muted { color: #8aa8a0; }
+.warp-credit-name { font-weight: 700; }
+"""
+
+def label(text, heading=False):
+    widget = Gtk.Label(label=text, xalign=0, wrap=True, selectable=True)
+    if heading: widget.add_css_class('title-3')
+    return widget
+
+def button(text, callback, suggested=False):
+    widget = Gtk.Button(label=text)
+    widget.connect('clicked', callback)
+    if suggested: widget.add_css_class('suggested-action')
+    return widget
+
+def box(spacing=12):
+    return Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=spacing)
+
+def margins(widget, size=22):
+    for side in ('top', 'bottom', 'start', 'end'):
+        getattr(widget, 'set_margin_' + side)(size)
+
+def call(action, payload=None):
+    result = subprocess.run([CONTROL, action, json.dumps(payload or {})], capture_output=True, text=True, timeout=150)
+    try: data = json.loads(result.stdout)
+    except ValueError: raise RuntimeError((result.stderr or result.stdout or 'Warp command failed')[-1800:])
+    if result.returncode or isinstance(data, dict) and data.get('error'):
+        raise RuntimeError(data.get('error', 'Warp command failed'))
+    return data
+
+class Dashboard(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id='io.chronara.OmarchyWarp', flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self.window = None
+        self.hosts, self.screens = [], []
+        self.connect('activate', self.activate)
+
+    def activate(self, *_):
+        if self.window:
+            self.window.present()
+            return
+        self.window = Gtk.ApplicationWindow(application=self, title='Omarchy Warp')
+        self.window.set_default_size(760, 740)
+        self.window.add_css_class('warp-window')
+        css = Gtk.CssProvider()
+        css.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            self.window.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        content = box()
+        margins(content)
+        title_row = Gtk.Box(spacing=10)
+        title = label('Omarchy Warp', True)
+        title.set_hexpand(True)
+        title_row.append(title)
+        title_row.append(button('Credits', lambda *_: self.credits_window()))
+        close = button('×', lambda *_: self.window.close())
+        close.set_tooltip_text('Close Omarchy Warp')
+        close.add_css_class('circular')
+        title_row.append(close)
+        content.append(title_row)
+        beta = label('Early beta. Public, but not recommended for daily use.')
+        beta.add_css_class('warp-beta')
+        content.append(beta)
+        intro = label('Choose where your laptop desktop appears. Apps and files stay on the laptop; an extended Warp output behaves as another monitor.')
+        intro.add_css_class('warp-muted')
+        content.append(intro)
+        actions = Gtk.Box(spacing=10)
+        actions.append(button('Pair a computer…', lambda *_: self.pair_window(), True))
+        actions.append(button('Arrange monitors…', lambda *_: self.layout_window()))
+        actions.append(button('Refresh computers', lambda *_: self.refresh()))
+        actions.append(button('Close dashboard', lambda *_: self.window.close()))
+        content.append(actions)
+        content.append(label('Send display to', True))
+        self.host_select = Gtk.DropDown(model=Gtk.StringList.new([]))
+        self.host_select.set_selected(Gtk.INVALID_LIST_POSITION)
+        content.append(self.host_select)
+        content.append(label('Connections prefer Ethernet, then Wi-Fi. Tailscale is the remote fallback.'))
+        self.mode = Gtk.DropDown(model=Gtk.StringList.new(['Mirror a laptop screen', 'Extended desktop']))
+        self.mode.set_selected(1)
+        self.mode.connect('notify::selected', lambda *_: self.refresh_screen_choices())
+        content.append(label('Display mode', True))
+        content.append(self.mode)
+        self.screen_select = Gtk.DropDown(model=Gtk.StringList.new([]))
+        content.append(self.screen_select)
+        self.resolution = Gtk.DropDown(model=Gtk.StringList.new(['1920x1080', '2560x1440', '3840x2160']))
+        content.append(self.resolution)
+        resources = Gtk.Grid(column_spacing=14, row_spacing=8)
+        resources.attach(label('Audio preference'), 0, 0, 1, 1)
+        resources.attach(label('Dictation preference'), 0, 1, 1, 1)
+        self.audio = Gtk.DropDown(model=Gtk.StringList.new(['Selected computer speakers', 'Laptop speakers', 'Muted']))
+        self.dictation = Gtk.DropDown(model=Gtk.StringList.new(['Off', 'Selected computer microphone', 'Laptop microphone']))
+        resources.attach(self.audio, 1, 0, 1, 1)
+        resources.attach(self.dictation, 1, 1, 1, 1)
+        content.append(resources)
+        content.append(label('Current display transport: VNC over private SSH. Client audio and microphone need the WebRTC bridge. Preferences are saved; no microphone is enabled by this window.'))
+        footer = Gtk.Box(spacing=12)
+        self.launch_button = button('Review and start display', lambda *_: self.review_launch(), True)
+        footer.append(self.launch_button)
+        self.spinner = Gtk.Spinner()
+        footer.append(self.spinner)
+        content.append(footer)
+        self.status = label('Choose a paired computer, or use “Pair a computer…”.')
+        content.append(self.status)
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.set_child(content)
+        self.window.set_child(scroll)
+        self.window.present()
+        self.refresh()
+
+    def async_work(self, work, done, status=None):
+        status = status or self.status
+        self.spinner.start()
+        self.launch_button.set_sensitive(False)
+        def finish(result, error):
+            self.spinner.stop()
+            self.launch_button.set_sensitive(True)
+            if error: status.set_text(str(error))
+            else: done(result)
+            return GLib.SOURCE_REMOVE
+        def worker():
+            try: result, error = work(), None
+            except Exception as exc: result, error = None, exc
+            GLib.idle_add(finish, result, error)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def refresh(self, selected=None):
+        self.status.set_text('Reading paired computers and laptop screens…')
+        def done(result):
+            self.hosts, self.screens = result
+            self.host_select.set_model(Gtk.StringList.new([h['name'] for h in self.hosts]))
+            index = next((i for i, h in enumerate(self.hosts) if h['id'] == selected), Gtk.INVALID_LIST_POSITION)
+            self.host_select.set_selected(index)
+            self.refresh_screen_choices()
+            self.status.set_text('Choose a destination, then review and start the display.' if self.hosts else 'No paired computers yet. Select “Pair a computer…” to add one.')
+        self.async_work(lambda: (call('hosts'), call('screens')), done)
+
+    def refresh_screen_choices(self):
+        extended = self.mode.get_selected() == 1
+        self.screen_choices = ([{'id': 'new', 'label': 'Create or resume this computer’s extended screen'}] if extended else [])
+        self.screen_choices += [s for s in self.screens if s['extended'] == extended]
+        labels = [s['label'] if s['id'] == 'new' else f"{s['label']} — {s['id']} ({s['resolution']})" for s in self.screen_choices]
+        self.screen_select.set_model(Gtk.StringList.new(labels))
+        self.resolution.set_visible(extended)
+
+    def child_window(self, title, width=650, height=500):
+        win = Gtk.Window(title=title, transient_for=self.window, modal=True, application=self)
+        win.set_default_size(width, height)
+        body = box()
+        margins(body)
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.set_child(body)
+        win.set_child(scroll)
+        return win, body
+
+    def review_launch(self):
+        index = self.host_select.get_selected()
+        screen = self.screen_select.get_selected()
+        if index >= len(self.hosts):
+            self.status.set_text('Please choose the computer that should receive this display.')
+            return
+        if screen >= len(self.screen_choices):
+            self.status.set_text('No suitable laptop screen is available for this mode.')
+            return
+        host = self.hosts[index]
+        payload = {'host': host['id'], 'mode': 'mirror' if self.mode.get_selected() == 0 else 'extended',
+                   'output': self.screen_choices[screen]['id'], 'resolution': ['1920x1080', '2560x1440', '3840x2160'][self.resolution.get_selected()],
+                   'audio': ['client', 'remote', 'off'][self.audio.get_selected()],
+                   'dictation': ['off', 'client', 'remote'][self.dictation.get_selected()]}
+        win, body = self.child_window('Start this display?', height=340)
+        body.append(label(f"{payload['mode'].title()} desktop → {host['name']}", True))
+        body.append(label('Screen: ' + self.screen_choices[screen]['label']))
+        body.append(label('Connection: Ethernet first, Wi-Fi second, Tailscale fallback.'))
+        body.append(label('This starts the display as another monitor; it does not launch a browser. Audio and dictation routing are preferences for the pending WebRTC bridge; microphone capture stays off.'))
+        actions = Gtk.Box(spacing=12)
+        def start(*_):
+            win.close()
+            self.status.set_text('Checking the destination, preparing the selected screen, and opening its browser…')
+            def done(result):
+                self.status.set_text(result['message'] + '\nDisplay connected. Audio and microphone forwarding are not active yet.')
+            self.async_work(lambda: call('launch', payload), done)
+        actions.append(button('Start display', start, True))
+        actions.append(button('Cancel', lambda *_: win.close()))
+        body.append(actions)
+        win.present()
+
+    def layout_window(self):
+        extended = [s for s in self.screens if s['extended']]
+        if not extended:
+            self.status.set_text('Create an extended Warp monitor first, then arrange it here.')
+            return
+        win, body = self.child_window('Arrange monitors', height=520)
+        body.append(label('Monitor layout', True))
+        body.append(label('Choose a Warp monitor, then place it around the physical laptop panel. This changes the real Hyprland layout, so the cursor crosses between displays naturally.'))
+        choices = Gtk.DropDown(model=Gtk.StringList.new([f"{s['label']} — {s['id']}" for s in extended]))
+        body.append(choices)
+        grid = Gtk.Grid(column_spacing=8, row_spacing=8, halign=Gtk.Align.CENTER)
+        grid.attach(label('Above'), 1, 0, 1, 1)
+        laptop = label('Laptop\neDP-1')
+        laptop.set_justify(Gtk.Justification.CENTER)
+        grid.attach(laptop, 1, 1, 1, 1)
+        body.append(grid)
+        status = label('Pick a position below.')
+        def place(position):
+            index = choices.get_selected()
+            if index >= len(extended): return
+            status.set_text('Updating the monitor layout…')
+            def done(result):
+                status.set_text(f"{result['output']} is now {result['position']} of the laptop. Cursor travel follows this layout.")
+                self.refresh()
+            self.async_work(lambda: call('arrange', {'output': extended[index]['id'], 'position': position}), done, status)
+        actions = Gtk.Grid(column_spacing=8, row_spacing=8, halign=Gtk.Align.CENTER)
+        actions.attach(button('Above', lambda *_: place('above')), 1, 0, 1, 1)
+        actions.attach(button('Left', lambda *_: place('left')), 0, 1, 1, 1)
+        actions.attach(button('Right', lambda *_: place('right')), 2, 1, 1, 1)
+        actions.attach(button('Below', lambda *_: place('below')), 1, 2, 1, 1)
+        body.append(actions)
+        body.append(status)
+        body.append(button('Close', lambda *_: win.close()))
+        win.present()
+
+    def pair_window(self):
+        win, body = self.child_window('Pair a computer', height=700)
+        body.append(label('Add a display destination', True))
+        body.append(label('Use an SSH-ready Mac or Linux PC. Discovery lists local SSH services, known LAN neighbours, and your online Tailscale peers.'))
+        discovery = Gtk.DropDown(model=Gtk.StringList.new(['Scan to find computers, or enter an address below']))
+        candidates = []
+        body.append(discovery)
+        form = Gtk.Grid(column_spacing=12, row_spacing=9)
+        entries = {}
+        for row, (key, title) in enumerate([('name', 'Computer name'), ('sshUser', 'SSH username'), ('ethernet-lan', 'Ethernet LAN address'), ('wifi-lan', 'Wi-Fi LAN address'), ('tailscale', 'Tailscale address')]):
+            field = Gtk.Entry(hexpand=True)
+            entries[key] = field
+            form.attach(label(title), 0, row, 1, 1)
+            form.attach(field, 1, row, 1, 1)
+        status = label('Enter the computer’s addresses. Only responding addresses with the same host key will be paired.')
+        def discovered(result):
+            candidates[:] = result
+            discovery.set_model(Gtk.StringList.new([f"{c['name']} — {c['address']} ({'remote' if c['kind'] == 'tailscale' else 'LAN'})" for c in result]))
+            discovery.set_selected(Gtk.INVALID_LIST_POSITION)
+            status.set_text(f'Found {len(result)} candidates. Choose one to fill its address, then review the fields.')
+        def scan(*_):
+            status.set_text('Looking for computers…')
+            self.async_work(lambda: call('discover'), discovered, status)
+        body.append(button('Scan for computers', scan))
+        def choose(*_):
+            index = discovery.get_selected()
+            if index >= len(candidates): return
+            candidate = candidates[index]
+            entries['name'].set_text(candidate['name'].rstrip('.'))
+            key = 'tailscale' if candidate['kind'] == 'tailscale' else 'ethernet-lan'
+            entries[key].set_text(candidate['address'])
+            if candidate['kind'] == 'lan':
+                status.set_text('Discovery cannot tell whether the destination uses a cable. Move its address to Wi-Fi if needed; Ethernet is tried first.')
+        discovery.connect('notify::selected', choose)
+        body.append(form)
+        body.append(status)
+        def inspect(*_):
+            status.set_text('Checking the SSH host key…')
+            data = {key: widget.get_text() for key, widget in entries.items()}
+            self.async_work(lambda: call('pair-preview', data), lambda preview: self.trust_window(win, preview), status)
+        body.append(button('Review and pair', inspect, True))
+        body.append(button('Close', lambda *_: win.close()))
+        win.present()
+
+    def trust_window(self, parent, preview):
+        win, body = self.child_window('Verify this computer', height=400)
+        win.set_transient_for(parent)
+        body.append(label(preview['name'], True))
+        body.append(label('Compare this SSH fingerprint with the one displayed on the destination before trusting it.'))
+        body.append(label(preview['fingerprint']))
+        body.append(label('\n'.join(f"{r['kind']}: {r['address']}" for r in preview['transports'])))
+        if preview['unreachable']:
+            body.append(label('Not responding; excluded: ' + ', '.join(preview['unreachable'])))
+        status = label('Pairing verifies authenticated SSH and checks whether a receiver is installed.')
+        body.append(status)
+        def trust(*_):
+            status.set_text('Verifying and saving this paired computer…')
+            def done(result):
+                win.close()
+                parent.close()
+                self.refresh(result['id'])
+                if not result['receiverReady']:
+                    self.status.set_text('Computer paired. Install the Warp receiver on it before starting a display.')
+            self.async_work(lambda: call('pair-confirm', preview), done, status)
+        body.append(button('Trust this fingerprint and pair', trust, True))
+        body.append(button('Cancel', lambda *_: win.close()))
+        win.present()
+
+    def credits_window(self):
+        win, body = self.child_window('Credits', width=560, height=620)
+        body.append(label('Credits', True))
+        body.append(label('Omarchy Warp is an early-beta Chronara research snapshot.'))
+        people = [
+            ('chronara-ai.png', 'Chronara AI', 'Project home for this research snapshot.'),
+            ('super-kevin-standing.png', 'Super Kevin', 'Omarchy laptop operator. Standing portrait of the Super Kevin character.'),
+            (None, 'James Tervit', 'Main developer. Creator and leader of Super Kevin and Chronara.'),
+        ]
+        for filename, name, blurb in people:
+            row = Gtk.Box(spacing=14)
+            path = CREDITS_DIR / filename if filename else None
+            if path and path.is_file():
+                picture = Gtk.Picture.new_for_filename(str(path))
+                picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+                picture.set_size_request(120, 120)
+                row.append(picture)
+            text = box(spacing=4)
+            name_label = label(name)
+            name_label.add_css_class('warp-credit-name')
+            text.append(name_label)
+            text.append(label(blurb))
+            row.append(text)
+            body.append(row)
+        body.append(button('Close', lambda *_: win.close()))
+        win.present()
+
+if __name__ == '__main__':
+    if '--check' in sys.argv:
+        Gtk.init()
+        print('GTK4 dashboard dependencies available')
+    else:
+        raise SystemExit(Dashboard().run(sys.argv))
