@@ -2,15 +2,17 @@
   "schemaVersion": 1,
   "id": "io.chronara.omarchy-warp",
   "name": "Omarchy Warp",
-  "version": "0.1.0",
-  "author": "Chronara",
+  "version": "0.1.0-beta",
+  "author": "Chronara, Super Kevin, James Tervit",
   "license": "MIT",
-  "description": "Choose a mirror or a dedicated extended Warp desktop from the taskbar.",
+  "description": "Pair a trusted LAN or Tailscale computer from the Omarchy bar. Local LAN is trusted; Tailscale SSH is automatic; a one-time password installs this laptop's SSH key.",
   "kinds": ["bar-widget"],
-  "entryPoints": {"barWidget": "BarWidget.qml"},
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
   "barWidget": {
     "displayName": "Omarchy Warp",
-    "description": "Mirror the laptop or prepare a dedicated extended Warp desktop.",
+    "description": "Pair a computer on trusted LAN or Tailscale, then open the Warp dashboard.",
     "category": "Productivity",
     "allowMultiple": false,
     "defaultSection": "right"

@@ -8,7 +8,7 @@
     },
     {
       "path": "bin/warp-control",
-      "sha256": "8aee79d5283f8fb89d3e77c3f36dbad1b8bba53cd2f45c274fbec8a3d1f36df1",
+      "sha256": "013cc6edb2a59e417143ed8fce457c3d55c6dba6e0568c33d610d8a37ccdf399",
       "bytes": 23652
     },
     {
@@ -28,12 +28,12 @@
     },
     {
       "path": "omarchy-plugin/BarWidget.qml",
-      "sha256": "e5c4160ba1d112941ebbece1159700a01fe677d8a6379f927d5918f0d1ab2bc0",
+      "sha256": "bcb28539e0ece5a5768ec55972bf8bb5e4a4d93e3f033419264749576a1f8922",
       "bytes": 1144
     },
     {
       "path": "omarchy-plugin/manifest.json",
-      "sha256": "186bbe04388c76c7b56ca039a6ef0ac792e86e55f5a5da58d6e42f41797aed63",
+      "sha256": "690adc955ad45484a8413625d54c7fc69b8348054207b348ece2d39ba8a7fa2d",
       "bytes": 553
     },
     {
@@ -55,6 +55,11 @@
       "path": "web/credits/super-kevin-standing.png",
       "sha256": "25e0e10ab92d3f40eac069bd0c304b71ae875a7ea3ca1e0bcb0333a0bb40ed45",
       "bytes": 575534
+    },
+    {
+      "path": "omarchy-plugin/Panel.qml",
+      "sha256": "584a07a7cba2bf2269dcc9936fe9a945680bb08a824af2296b9fd1b946035553",
+      "bytes": 6879
     }
   ]
 }

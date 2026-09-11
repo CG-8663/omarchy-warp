@@ -30,6 +30,7 @@ def fake_source(root: Path) -> Path:
         "config/hosts.example.json": '{"version":1,"hosts":[]}\n',
         "config/hosts.json": '{"version":1,"hosts":[{"id":"jamest-secret"}]}\n',
         "omarchy-plugin/BarWidget.qml": "text: \"bolt\"\n",
+        "omarchy-plugin/Panel.qml": "Panel {}\n",
         "omarchy-plugin/manifest.json": '{"id":"io.chronara.omarchy-warp"}\n',
     }
     for relative, body in bodies.items():
@@ -123,6 +124,7 @@ class InstallTests(unittest.TestCase):
         spec = install.plan(self.root, self.source, self.web, None, plugin=True)
         install.apply_plan(spec)
         self.assertTrue((self.root / ".config/omarchy/plugins/io.chronara.omarchy-warp/BarWidget.qml").is_file())
+        self.assertTrue((self.root / ".config/omarchy/plugins/io.chronara.omarchy-warp/Panel.qml").is_file())
         self.assertFalse((self.root / ".local/bin/omarchy-warp-receiver").exists())
 
     def test_repo_tree_is_a_complete_source(self):

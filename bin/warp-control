@@ -130,10 +130,13 @@ def local_public_key():
 
 def pair_password():
     path = os.environ.get('WARP_PAIR_PASSWORD_FILE', '')
-    if not path:
-        return None
-    text = Path(path).read_text()
-    return text.splitlines()[0] if text else None
+    if path:
+        text = Path(path).read_text()
+        return text.splitlines()[0] if text else None
+    if os.environ.get('WARP_PAIR_PASSWORD_STDIN') == '1':
+        line = sys.stdin.readline()
+        return line.rstrip('\n') if line else None
+    return None
 
 def password_askpass_env(password):
     private_dir(CONFIG)

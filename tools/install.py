@@ -30,6 +30,7 @@ FORBIDDEN_RELATIVE = (
     "bin/omarchy-warp-agent",
     "bin/warp-broker",
     "omarchy-plugin/BarWidget.qml",
+    "omarchy-plugin/Panel.qml",
     "omarchy-plugin/manifest.json",
     "scripts/deploy-dashboard-laptop.sh",
 )
@@ -180,8 +181,12 @@ def plan(root: Path, source: Path, web: Path | None, icon: Path | None, plugin: 
         manifest = plugin_src / "manifest.json"
         if not widget.is_file() or not manifest.is_file():
             raise InstallError("omarchy-plugin/ is missing BarWidget.qml or manifest.json")
+        panel = plugin_src / "Panel.qml"
+        if not panel.is_file():
+            raise InstallError("omarchy-plugin/ is missing Panel.qml")
         actions.append({"op": "install-file", "from": str(manifest), "to": str(paths["plugin"] / "manifest.json"), "mode": 0o644})
         actions.append({"op": "install-file", "from": str(widget), "to": str(paths["plugin"] / "BarWidget.qml"), "mode": 0o644})
+        actions.append({"op": "install-file", "from": str(panel), "to": str(paths["plugin"] / "Panel.qml"), "mode": 0o644})
 
     return {
         "role": "omarchy-source-install",
