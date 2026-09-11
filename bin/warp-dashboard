@@ -315,8 +315,8 @@ class Dashboard(Gtk.Application):
         body.append(label('Omarchy Warp is an early-beta Chronara research snapshot.'))
         people = [
             ('chronara-ai.png', 'Chronara AI', 'Project home for this research snapshot.'),
-            ('super-kevin-standing.png', 'Super Kevin', 'Omarchy laptop operator. Standing portrait of the Super Kevin character.'),
-            (None, 'James Tervit', 'Main developer. Creator and leader of Super Kevin and Chronara.'),
+            ('super-kevin-standing.png', 'Super Kevin', 'Contributor. Omarchy laptop operator. Standing portrait of the Super Kevin character.'),
+            (None, 'James Tervit', 'Contributor and main developer. Creator and leader of Super Kevin and Chronara.'),
         ]
         for filename, name, blurb in people:
             row = Gtk.Box(spacing=14)

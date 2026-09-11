@@ -32,6 +32,7 @@ class ViewerShellTests(unittest.TestCase):
         self.assertIn("chronara ai", lowered)
         self.assertIn("super kevin", lowered)
         self.assertIn("james tervit", lowered)
+        self.assertIn("contributor", lowered)
         self.assertIn("main developer", lowered)
         self.assertIn("credits/super-kevin-standing.png", HTML)
         self.assertIn("credits/chronara-ai.png", HTML)

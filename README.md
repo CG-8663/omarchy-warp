@@ -141,11 +141,13 @@ python3 -m unittest tools.test_preflight tools.test_install web.test_index -v
 
 `ready_for_install_preview` is a command listing, not permission to start a display. Native receiver, SSH launch into a Mac, and unauthenticated VNC are out of first-release scope.
 
-## Credits
+## Contributors
 
+Super Kevin and James Tervit are the contributors on this snapshot.
+
+- **Super Kevin** (`kevin8663`) — contributor. Omarchy laptop operator. Standing portrait: `assets/credits/super-kevin-standing.png`.
+- **James Tervit** (`jimthedj65`) — contributor and main developer. Creator and leader of Super Kevin and Chronara.
 - **Chronara AI** — project home for this research snapshot.
-- **Super Kevin** — Omarchy laptop operator. Standing portrait: `assets/credits/super-kevin-standing.png`.
-- **James Tervit** — main developer. Creator and leader of Super Kevin and Chronara.
 
 The viewer shell and the Warp dashboard Credits window show the same three names. James Tervit is credited in text; Super Kevin and Chronara AI use local artwork.
 
