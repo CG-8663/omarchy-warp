@@ -97,7 +97,7 @@ class Dashboard(Gtk.Application):
         self.host_select = Gtk.DropDown(model=Gtk.StringList.new([]))
         self.host_select.set_selected(Gtk.INVALID_LIST_POSITION)
         content.append(self.host_select)
-        content.append(label('Connections prefer Ethernet, then Wi-Fi. Tailscale is the remote fallback.'))
+        content.append(label('Connections prefer Ethernet, then Wi-Fi. Tailscale SSH is automatic. Local LAN is trusted, so Warp does not ask you to type SSH details.'))
         self.mode = Gtk.DropDown(model=Gtk.StringList.new(['Mirror a laptop screen', 'Extended desktop']))
         self.mode.set_selected(1)
         self.mode.connect('notify::selected', lambda *_: self.refresh_screen_choices())
@@ -115,7 +115,7 @@ class Dashboard(Gtk.Application):
         resources.attach(self.audio, 1, 0, 1, 1)
         resources.attach(self.dictation, 1, 1, 1, 1)
         content.append(resources)
-        content.append(label('Current display transport: VNC over private SSH. Client audio and microphone need the WebRTC bridge. Preferences are saved; no microphone is enabled by this window.'))
+        content.append(label('Current display transport: private session over trusted LAN or Tailscale SSH. Client audio and microphone need the WebRTC bridge. Preferences are saved; no microphone is enabled by this window.'))
         footer = Gtk.Box(spacing=12)
         self.launch_button = button('Review and start display', lambda *_: self.review_launch(), True)
         footer.append(self.launch_button)
@@ -192,7 +192,7 @@ class Dashboard(Gtk.Application):
         win, body = self.child_window('Start this display?', height=340)
         body.append(label(f"{payload['mode'].title()} desktop → {host['name']}", True))
         body.append(label('Screen: ' + self.screen_choices[screen]['label']))
-        body.append(label('Connection: Ethernet first, Wi-Fi second, Tailscale fallback.'))
+        body.append(label('Connection: Ethernet first, Wi-Fi second, then Tailscale SSH. Local LAN is trusted.'))
         body.append(label('This starts the display as another monitor; it does not launch a browser. Audio and dictation routing are preferences for the pending WebRTC bridge; microphone capture stays off.'))
         actions = Gtk.Box(spacing=12)
         def start(*_):
@@ -244,18 +244,20 @@ class Dashboard(Gtk.Application):
     def pair_window(self):
         win, body = self.child_window('Pair a computer', height=700)
         body.append(label('Add a display destination', True))
-        body.append(label('Use an SSH-ready Mac or Linux PC. Discovery lists local SSH services, known LAN neighbours, and your online Tailscale peers.'))
+        body.append(label('Add a computer on the trusted local LAN or over Tailscale. Warp uses this laptop’s account name. Tailscale SSH is automatic. You are not asked for an SSH password or host fingerprint when local LAN is trusted.'))
         discovery = Gtk.DropDown(model=Gtk.StringList.new(['Scan to find computers, or enter an address below']))
         candidates = []
         body.append(discovery)
         form = Gtk.Grid(column_spacing=12, row_spacing=9)
         entries = {}
-        for row, (key, title) in enumerate([('name', 'Computer name'), ('sshUser', 'SSH username'), ('ethernet-lan', 'Ethernet LAN address'), ('wifi-lan', 'Wi-Fi LAN address'), ('tailscale', 'Tailscale address')]):
+        for row, (key, title) in enumerate([('name', 'Computer name'), ('ethernet-lan', 'Ethernet LAN address'), ('wifi-lan', 'Wi-Fi LAN address'), ('tailscale', 'Tailscale address')]):
             field = Gtk.Entry(hexpand=True)
             entries[key] = field
             form.attach(label(title), 0, row, 1, 1)
             form.attach(field, 1, row, 1, 1)
-        status = label('Enter the computer’s addresses. Only responding addresses with the same host key will be paired.')
+        lan_trusted = Gtk.CheckButton(label='Local LAN is trusted')
+        lan_trusted.set_active(True)
+        status = label('Enter a name and a LAN or Tailscale address. SSH username and fingerprint checks stay off while local LAN is trusted.')
         def discovered(result):
             candidates[:] = result
             discovery.set_model(Gtk.StringList.new([f"{c['name']} — {c['address']} ({'remote' if c['kind'] == 'tailscale' else 'LAN'})" for c in result]))
@@ -276,12 +278,28 @@ class Dashboard(Gtk.Application):
                 status.set_text('Discovery cannot tell whether the destination uses a cable. Move its address to Wi-Fi if needed; Ethernet is tried first.')
         discovery.connect('notify::selected', choose)
         body.append(form)
+        body.append(lan_trusted)
         body.append(status)
         def inspect(*_):
-            status.set_text('Checking the SSH host key…')
+            call('settings', {'lanTrusted': lan_trusted.get_active()})
             data = {key: widget.get_text() for key, widget in entries.items()}
-            self.async_work(lambda: call('pair-preview', data), lambda preview: self.trust_window(win, preview), status)
-        body.append(button('Review and pair', inspect, True))
+            data['sshUser'] = os.environ.get('USER', '')
+            status.set_text('Checking the destination…')
+            def after_preview(preview):
+                if preview.get('needsFingerprint'):
+                    self.trust_window(win, preview)
+                    return
+                status.set_text('Pairing over trusted LAN or Tailscale SSH…')
+                def done(result):
+                    win.close()
+                    self.refresh(result['id'])
+                    if not result.get('receiverReady'):
+                        self.status.set_text('Computer paired. Browser viewing does not need a native receiver. A native receiver is only required for the older SSH display path.')
+                    else:
+                        self.status.set_text(f"Paired {result['name']} on trusted LAN or Tailscale.")
+                self.async_work(lambda: call('pair-confirm', preview), done, status)
+            self.async_work(lambda: call('pair-preview', data), after_preview, status)
+        body.append(button('Pair this computer', inspect, True))
         body.append(button('Close', lambda *_: win.close()))
         win.present()
 

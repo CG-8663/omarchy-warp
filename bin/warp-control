@@ -20,8 +20,10 @@ import uuid
 CONFIG = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'omarchy-warp'
 STATE = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'omarchy-warp'
 HOSTS, KEYS = CONFIG / 'hosts.json', CONFIG / 'known_hosts'
+SETTINGS = CONFIG / 'settings.json'
 MANAGER = str(Path(__file__).with_name('omarchy-warp'))
 ROUTES = ('ethernet-lan', 'wifi-lan', 'tailscale')
+CGNAT = ipaddress.ip_network('100.64.0.0/10')
 
 class WarpError(RuntimeError): pass
 
@@ -57,6 +59,37 @@ def write_private(path, text):
 def write_json(path, data): write_private(path, json.dumps(data, indent=2) + '\n')
 def hosts(): return read_json(HOSTS, {'hosts': []}).get('hosts', [])
 
+def load_settings():
+    data = read_json(SETTINGS, {})
+    data.setdefault('lanTrusted', True)
+    return data
+
+def lan_trusted():
+    return bool(load_settings().get('lanTrusted', True))
+
+def default_ssh_user(explicit=''):
+    user = (explicit or os.environ.get('USER') or os.environ.get('LOGNAME') or '').strip()
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]{0,63}', user):
+        raise WarpError('Could not determine a local account name for trusted LAN or Tailscale SSH.')
+    return user
+
+def uses_tailscale_ssh(address, kind=None):
+    if kind == 'tailscale':
+        return True
+    try:
+        return ipaddress.ip_address(address.split('%')[0]) in CGNAT
+    except ValueError:
+        return False
+
+def settings_action(data):
+    current = load_settings()
+    if 'lanTrusted' in data:
+        current['lanTrusted'] = bool(data['lanTrusted'])
+        write_json(SETTINGS, current)
+    current['sshUser'] = default_ssh_user(data.get('sshUser', current.get('sshUser', '')))
+    current['lanTrusted'] = bool(current.get('lanTrusted', True))
+    return current
+
 def clean_address(address):
     address = address.strip()
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.:%_-]{0,252}', address):
@@ -70,16 +103,22 @@ def clean_address(address):
     return address
 
 def ssh(host, address, command, keys=KEYS, timeout=15):
+    user = default_ssh_user(host.get('sshUser', ''))
+    kind = next((route.get('kind') for route in host.get('transports', []) if route.get('address') == address), None)
+    if uses_tailscale_ssh(address, kind):
+        return run(['tailscale', 'ssh', f'{user}@{address}', command], timeout=timeout)
+    checking = 'accept-new' if lan_trusted() else 'yes'
     return run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=4', '-o', 'ConnectionAttempts=1',
-                '-o', 'StrictHostKeyChecking=yes', '-o', f'UserKnownHostsFile={keys}',
-                f"{host['sshUser']}@{address}", command], timeout=timeout)
+                '-o', f'StrictHostKeyChecking={checking}', '-o', f'UserKnownHostsFile={keys}',
+                f'{user}@{address}', command], timeout=timeout)
 
 def checked_host(ident):
     found = next((h for h in hosts() if h.get('id') == ident), None)
     if not found: raise WarpError('Choose a paired computer first.')
-    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]{0,63}', found.get('sshUser', '')):
-        raise WarpError('The paired SSH username is invalid; pair this host again.')
-    if not KEYS.is_file(): raise WarpError('The pinned host keys are missing; pair this host again.')
+    found = {**found, 'sshUser': default_ssh_user(found.get('sshUser', ''))}
+    tailscale_only = bool(found.get('transports')) and all(r.get('kind') == 'tailscale' for r in found.get('transports', []))
+    if not KEYS.is_file() and not lan_trusted() and not tailscale_only:
+        raise WarpError('The pinned host keys are missing; pair this host again.')
     return found
 
 def routes(host):
@@ -99,28 +138,42 @@ def probe(ident):
     raise WarpError('Cannot reach this computer.\n' + '\n'.join(failures))
 
 def pairing_preview(data):
-    name, user = data.get('name', '').strip(), data.get('sshUser', '').strip()
-    if not name or len(name) > 100 or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]{0,63}', user):
-        raise WarpError('Enter a display name and valid SSH username.')
+    name = data.get('name', '').strip()
+    user = default_ssh_user(data.get('sshUser', ''))
+    if not name or len(name) > 100:
+        raise WarpError('Enter a display name.')
     transport, lines, failures = [], [], []
     for priority, kind in enumerate(ROUTES, 1):
         address = data.get(kind, '').strip()
         if not address: continue
         address = clean_address(address)
+        if uses_tailscale_ssh(address, kind):
+            transport.append({'kind': kind, 'address': address, 'priority': priority})
+            continue
         result = run(['ssh-keyscan', '-T', '4', '-t', 'ed25519', address], timeout=8, check=False)
         keys = [s for s in result.stdout.splitlines() if len(s.split()) == 3 and s.split()[1] == 'ssh-ed25519']
         if not keys:
-            failures.append(address)
+            if lan_trusted():
+                transport.append({'kind': kind, 'address': address, 'priority': priority})
+            else:
+                failures.append(address)
             continue
         transport.append({'kind': kind, 'address': address, 'priority': priority})
         lines.extend(keys)
-    if not transport: raise WarpError('No SSH host responded. Enable Remote Login / SSH and check its address.')
-    unique = {' '.join(line.split()[1:]) for line in lines}
-    if len(unique) != 1:
-        raise WarpError('These addresses return different host keys. They may be different computers; pair them separately.')
-    fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(next(iter(unique)).split()[1])).digest()).decode().rstrip('=')
+    if not transport: raise WarpError('No LAN or Tailscale destination was given.')
+    if lines:
+        unique = {' '.join(line.split()[1:]) for line in lines}
+        if len(unique) != 1:
+            raise WarpError('These addresses return different host keys. They may be different computers; pair them separately.')
+        fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(next(iter(unique)).split()[1])).digest()).decode().rstrip('=')
+    elif any(uses_tailscale_ssh(r['address'], r['kind']) for r in transport):
+        fingerprint = 'tailscale-ssh'
+    else:
+        fingerprint = 'trusted-lan'
+    needs_fingerprint = bool(lines) and not lan_trusted()
     return {'name': name, 'sshUser': user, 'transports': transport, 'keyLines': sorted(set(lines)),
-            'fingerprint': fingerprint, 'unreachable': failures}
+            'fingerprint': fingerprint, 'unreachable': failures, 'needsFingerprint': needs_fingerprint,
+            'lanTrusted': lan_trusted()}
 
 def pair_confirm(preview):
     data = {'name': preview['name'], 'sshUser': preview['sshUser']}
@@ -145,7 +198,10 @@ def pair_confirm(preview):
                 break
             except WarpError: continue
         if not reachable:
-            raise WarpError("Host verified, but authenticated SSH failed. Authorize this laptop's SSH key on that computer first.")
+            if lan_trusted() or any(uses_tailscale_ssh(r['address'], r['kind']) for r in fresh['transports']):
+                reachable = {'receiverReady': False, 'os': 'unknown'}
+            else:
+                raise WarpError("Host verified, but authenticated SSH failed. Authorize this laptop's SSH key on that computer first.")
         all_hosts = hosts()
         existing = next((h for h in all_hosts if h.get('fingerprint') == fresh['fingerprint'] or
                          any(r.get('address') == n['address'] for r in h.get('transports', []) for n in fresh['transports'])), None)
@@ -403,13 +459,14 @@ def launch(data):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['hosts', 'screens', 'arrange', 'discover', 'probe', 'pair-preview', 'pair-confirm', 'launch'])
+    parser.add_argument('action', choices=['hosts', 'screens', 'arrange', 'discover', 'probe', 'pair-preview', 'pair-confirm', 'launch', 'settings'])
     parser.add_argument('payload', nargs='?', default='{}')
     args = parser.parse_args()
     try:
         data = json.loads(args.payload)
         commands = {'hosts': hosts, 'screens': screens, 'arrange': lambda: arrange(data), 'discover': discover, 'probe': lambda: probe(data['host']),
-                    'pair-preview': lambda: pairing_preview(data), 'pair-confirm': lambda: pair_confirm(data), 'launch': lambda: launch(data)}
+                    'pair-preview': lambda: pairing_preview(data), 'pair-confirm': lambda: pair_confirm(data), 'launch': lambda: launch(data),
+                    'settings': lambda: settings_action(data)}
         print(json.dumps(commands[args.action]()))
     except (WarpError, OSError, ValueError, KeyError) as exc:
         print(json.dumps({'error': str(exc)}))

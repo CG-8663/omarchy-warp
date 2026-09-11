@@ -78,7 +78,7 @@ Omarchy Warp is not trying to turn every browser into an unmanaged public remote
 
 ## Current testing scope
 
-The prototype is being tested on trusted devices on a local LAN. The current focus is on:
+The prototype is being tested on trusted devices on a local LAN. Local LAN is treated as trusted, so pairing does not ask for an SSH username or host fingerprint. Tailscale SSH is used automatically for Tailscale peers. The current focus is on:
 
 - Starting and closing virtual monitor sessions reliably.
 - Keeping each virtual monitor distinct from the laptop's own monitor and workspaces.

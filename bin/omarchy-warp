@@ -145,21 +145,16 @@ launch_session() {
 }
 
 pair_host() {
-  local name user wired wifi tail client key_tmp
+  local name user wired wifi tail client
   printf 'Display name: '; read -r name
-  printf 'SSH username: '; read -r user
+  user="${USER:-}"
   printf 'Wired LAN IP (blank to skip): '; read -r wired
   printf 'Wi-Fi LAN IP (blank to skip): '; read -r wifi
   printf 'Tailscale IP (blank to skip): '; read -r tail
   client="$(printf '%s' "$name" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-')"
-  [ -n "$client" ] && [ -n "$user" ] || die 'name and SSH username are required'
+  [ -n "$client" ] && [ -n "$user" ] || die 'name is required'
+  [ -n "$wired$wifi$tail" ] || die 'enter a LAN or Tailscale address'
   mkdir -p "$config_dir"; chmod 700 "$config_dir"
-  key_tmp="$config_dir/known_hosts.new"; : > "$key_tmp"
-  for address in "$wired" "$wifi" "$tail"; do [ -n "$address" ] && ssh-keyscan -T 8 -t ed25519 "$address" 2>/dev/null >> "$key_tmp" || true; done
-  [ -s "$key_tmp" ] || die 'could not obtain an SSH host key from any address'
-  printf 'Host key fingerprint(s):\n'; ssh-keygen -lf "$key_tmp"
-  printf 'Trust these keys and pair this machine? [y/N] '; read -r answer
-  [[ "$answer" =~ ^[Yy]$ ]] || { rm -f "$key_tmp"; die 'pairing cancelled'; }
   python3 - "$hosts_file" "$client" "$name" "$user" "$wired" "$wifi" "$tail" <<'PY'
 import json, os, sys
 path, ident, name, user, wired, wifi, tail = sys.argv[1:]
@@ -172,8 +167,7 @@ hosts.append({"id": ident, "name": name, "sshUser": user,
 with open(path, "w") as f: json.dump({"version": 1, "hosts": hosts}, f, indent=2); f.write("\n")
 os.chmod(path, 0o600)
 PY
-  chmod 600 "$key_tmp"; mv "$key_tmp" "$known_hosts_file"
-  printf 'Paired %s.\n' "$name"
+  printf 'Paired %s on trusted LAN or Tailscale. SSH username defaulted to %s.\n' "$name" "$user"
 }
 
 case "${1:-status}" in
