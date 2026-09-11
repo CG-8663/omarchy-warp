@@ -143,10 +143,11 @@ python3 -m unittest tools.test_preflight tools.test_install web.test_index -v
 
 ## Contributors
 
-Super Kevin and James Tervit are the contributors on this snapshot.
+This snapshot is submitted by three GitHub profiles: Super Kevin (`kevin8663`), James Tervit (`jimthedj65`), and Chronara Group (`CG-8663`).
 
 - **Super Kevin** (`kevin8663`) — contributor. Omarchy laptop operator. Standing portrait: `assets/credits/super-kevin-standing.png`.
 - **James Tervit** (`jimthedj65`) — contributor and main developer. Creator and leader of Super Kevin and Chronara.
+- **Chronara Group** (`CG-8663`) — GitHub publisher for this repository.
 - **Chronara AI** — project home for this research snapshot.
 
 The viewer shell and the Warp dashboard Credits window show the same three names. James Tervit is credited in text; Super Kevin and Chronara AI use local artwork.
